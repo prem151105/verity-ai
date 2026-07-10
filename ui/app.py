@@ -187,388 +187,300 @@ def load_nvda_demo():
         }
     }
 
-# ── Sidebar Navigation ────────────────────────────────────────────────────────
+# Setup state
+if "run_id" not in st.session_state:
+    st.session_state.run_id = None
+if "result" not in st.session_state:
+    st.session_state.result = None
+if "ticker" not in st.session_state:
+    st.session_state.ticker = None
+if "active_agent" not in st.session_state:
+    st.session_state.active_agent = None
+
+# ── Sidebar Configurations ────────────────────────────────────────────────────
 with st.sidebar:
-    st.title("⚡ Verity AI")
-    st.caption("Multi-Agent Financial Research")
+    st.title("⚡ Verity AI Dashboard")
+    st.caption("Multi-Agent Financial Research System")
     st.divider()
     
-    page = st.radio(
-        "Navigation",
-        ["📖 Project Overview", "🧠 System Architecture", "⚡ Interactive Live Demo"],
-        index=2
-    )
+    ticker_input = st.text_input(
+        "US Stock Ticker",
+        placeholder="AAPL, MSFT, GOOGL, NVDA...",
+        value=st.session_state.ticker if st.session_state.ticker else "NVDA"
+    ).upper().strip()
+    
+    use_in_process = not api_active
+    api_key_input = ""
+    user_agent_input = ""
+    
+    if use_in_process:
+        st.info("No API backend detected. Enter keys to run in-process, or click the pre-loaded demo below.")
+        api_key_input = st.text_input("Gemini API Key", type="password", value=os.environ.get("GEMINI_API_KEY", ""))
+        user_agent_input = st.text_input("SEC User-Agent Header", placeholder="YourName contact@domain.com", value=os.environ.get("SEC_USER_AGENT", "VerityDemo/1.0 User@example.com"))
+        
+    run_btn = st.button("🔍 Run Multi-Agent System", use_container_width=True, type="primary")
+    
+    st.divider()
+    st.subheader("Instant Demo")
+    load_demo_btn = st.button("🚀 Load NVIDIA Demo Report", use_container_width=True)
     
     st.divider()
     if api_active:
-        st.success("🟢 Local API Active (Port 8000)")
+        st.success("🟢 Local API Connected")
     else:
-        st.info("☁️ Streamlit Cloud / Standalone Mode")
+        st.info("☁️ Streamlit Cloud Mode Active")
 
-# ── PAGE 1: PROJECT OVERVIEW ──────────────────────────────────────────────────
-if page == "📖 Project Overview":
-    st.title("📖 Project Overview: Verity Financial Research")
-    st.write(
-        "Verity is an advanced multi-agent system built on **LangGraph** designed to automate equity research "
-        "by retrieving primary SEC Edgar filings and financial facts, generating rich reports, and "
-        "rigorously checking its own statements using a dedicated Verifier Agent."
-    )
-    
-    st.subheader("📋 Table of Contents")
-    st.markdown("""
-    1. **[Executive Summary](#executive-summary)** — Overview of goals and problem statement.
-    2. **[Multi-Agent Scaffold](#multi-agent-scaffold)** — Structure of the 6 specialized AI agents.
-    3. **[Core Differentiator: The Verifier](#core-differentiator-the-verifier)** — How we eliminate LLM hallucinations.
-    4. **[Financial Data Ingestion](#financial-data-ingestion)** — Details on SEC EDGAR & yfinance API clients.
-    5. **[Codebase Structure](#codebase-structure)** — Folder layout and execution entry points.
-    """)
-    
-    st.divider()
-    
-    st.markdown("### Executive Summary")
-    st.info(
-        "Traditional financial research pipelines rely on simple LLM prompts, leading to factual hallucinations "
-        "and incorrect arithmetic calculations. Verity addresses this by running isolated, deterministic python code "
-        "to calculate financial ratios, and verifying every written report claim against raw retrieved documents before shipping."
-    )
-    
-    st.markdown("### Core Features")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("""
-        - **🔗 LangGraph Orchestration:** Explicit state graph control over multi-agent handoffs.
-        - **📊 Deterministic Financials:** Ratios computed by isolated code executions, not LLM guess-work.
-        - **🛡️ 100% Citation Audit Log:** Generates verifiable links from claims directly to SEC text ranges.
-        """)
-    with col2:
-        st.markdown("""
-        - **☁️ Cloud Standalone Ready:** Works dynamically in-process on Streamlit Cloud without separate backend servers.
-        - **🌓 Dual Theme CSS System:** Responsive typography matching user light/dark preferences.
-        - **🧪 Complete Evaluation Suite:** Pre-compiled results verifying accuracy across different stock tickers.
-        """)
+# ── MAIN PANEL ────────────────────────────────────────────────────────────────
+st.title("📊 Verity — Multi-Agent Financial Research & Verification")
+st.write(
+    "Verity is an autonomous research system built on **LangGraph**. It fetches raw SEC Edgar filings "
+    "and fundamentals, computes financial ratios using isolated python execution, and uses an anti-hallucination "
+    "Verifier Agent to cross-check every claim against source documents before generating final reports."
+)
 
-# ── PAGE 2: SYSTEM ARCHITECTURE ────────────────────────────────────────────────
-elif page == "🧠 System Architecture":
-    st.title("🧠 System Architecture & Deep Dive")
-    st.write(
-        "Below is the architectural schematic showing how Verity processes ticker inputs, fetches documents, "
-        "computes ratios, writes reports, and executes the Writer ⇄ Verifier feedback loop."
-    )
-    
-    # We display the architecture diagram
-    if os.path.exists("verity-ai.png"):
-        st.image("verity-ai.png", caption="Verity Multi-Agent Flowchart", use_container_width=True)
-    else:
-        st.info("System architecture image (verity-ai.png) not found in directory.")
-        
-    st.divider()
-    
-    st.subheader("The 6 Specialized Agents")
-    
-    agent_cols = st.columns(3)
-    with agent_cols[0]:
-        st.markdown("""
-        **1. 📅 Planner Agent**
-        Decomposes research tasks, maps stock tickers to central CIK identifiers, and organizes financial metrics.
-        
-        **2. 📥 Retriever Agent**
-        Downloads raw 10-K/10-Q filings, scrapes market metrics from yfinance, and embeds text into ChromaDB.
-        """)
-    with agent_cols[1]:
-        st.markdown("""
-        **3. 📊 Analyst Agent**
-        Runs deterministic python formulas to extract financial facts and compute Gross Margin, YoY Growth, and Current Ratio.
-        
-        **4. ✍️ Writer Agent**
-        Drafts report segments and attaches a citation tag `[[CITE: source | passage]]` to every claim.
-        """)
-    with agent_cols[2]:
-        st.markdown("""
-        **5. 🔍 Verifier Agent**
-        Pulls cited source text from ChromaDB and evaluates claim alignment, providing corrective feedback to the Writer.
-        
-        **6. 📋 Assembler Agent**
-        Consolidates sections, marks unverified claims, and constructs the compliance Verification Audit Log.
-        """)
-        
-    st.divider()
-    st.subheader("The Anti-Hallucination Loop")
-    st.markdown("""
-    When the Writer drafts a report, it must cite specific SEC passages. The **Verifier** intercepts the draft, 
-    re-queries ChromaDB for that passage independently, and evaluates whether the statement aligns. If the statement 
-    is wrong (e.g. citing `$3.84` as `$5.84`), the Verifier generates detailed feedback and routes execution back to the 
-    Writer for correction. If correction fails after 2 iterations, the claim is highlighted as `[UNVERIFIED]` to maintain trust.
-    """)
+st.divider()
 
-# ── PAGE 3: INTERACTIVE LIVE DEMO ──────────────────────────────────────────────
-elif page == "⚡ Interactive Live Demo":
-    st.title("⚡ Interactive Research Demo")
+# Renders the architecture diagram on the main page
+st.subheader("🕸️ System Architecture & Agent Flow")
+if os.path.exists("verity-ai.png"):
+    st.image("verity-ai.png", caption="Verity Multi-Agent Process Flow Chart", use_container_width=True)
+else:
+    st.info("System architecture diagram (verity-ai.png) not found.")
+
+st.divider()
+
+# Interactive Console Runner
+st.subheader("⚡ Live Multi-Agent Execution & Reports")
+
+# Check triggers
+if load_demo_btn:
+    st.session_state.result = load_nvda_demo()
+    st.session_state.run_id = "demo-nvda-123"
+    st.session_state.ticker = "NVDA"
+    st.session_state.active_agent = "Assembler"
+    st.success("Loaded pre-computed NVIDIA Corporation equity research report!")
+
+if run_btn and ticker_input:
+    st.session_state.result = None
+    st.session_state.run_id = None
+    st.session_state.ticker = ticker_input
     
-    # Setup state
-    if "run_id" not in st.session_state:
-        st.session_state.run_id = None
-    if "result" not in st.session_state:
-        st.session_state.result = None
-    if "ticker" not in st.session_state:
-        st.session_state.ticker = None
-    if "active_agent" not in st.session_state:
-        st.session_state.active_agent = None
-    if "logs" not in st.session_state:
-        st.session_state.logs = []
-        
-    # Sidebar input controls
-    with st.sidebar:
-        st.subheader("Research Target")
-        ticker_input = st.text_input(
-            "US Stock Ticker",
-            placeholder="AAPL, MSFT, GOOGL, NVDA...",
-            value=st.session_state.ticker if st.session_state.ticker else "NVDA"
-        ).upper().strip()
-        
-        # Action parameters
-        use_in_process = not api_active
-        api_key_input = ""
-        user_agent_input = ""
-        
-        if use_in_process:
-            st.info("No API backend detected. Enter keys to run in-process, or click the pre-loaded demo below.")
-            api_key_input = st.text_input("Gemini API Key", type="password", value=os.environ.get("GEMINI_API_KEY", ""))
-            user_agent_input = st.text_input("SEC User-Agent Header", placeholder="YourName contact@domain.com", value=os.environ.get("SEC_USER_AGENT", "VerityDemo/1.0 User@example.com"))
-            
-        run_btn = st.button("🔍 Run Multi-Agent System", use_container_width=True, type="primary")
-        
-        st.divider()
-        st.subheader("Instant Pre-loaded Demo")
-        load_demo_btn = st.button("🚀 Load NVIDIA Demo Report", use_container_width=True)
-
-    # Load Demo Report
-    if load_demo_btn:
-        st.session_state.result = load_nvda_demo()
-        st.session_state.run_id = "demo-nvda-123"
-        st.session_state.ticker = "NVDA"
-        st.session_state.active_agent = "Assembler"
-        st.success("Loaded pre-computed NVIDIA Corporation equity research report!")
-
-    # Run execution logic
-    if run_btn and ticker_input:
-        st.session_state.result = None
-        st.session_state.run_id = None
-        st.session_state.ticker = ticker_input
-        st.session_state.logs = []
-        
-        # ── LOCAL MODE (FASTAPI ACTIVE) ──────────────────────────────────────
-        if api_active:
-            with st.spinner(f"Kicking off FastAPI agent run for {ticker_input}..."):
-                try:
-                    resp = requests.post(f"{API_BASE}/research/{ticker_input}", timeout=10)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        st.session_state.run_id = data["run_id"]
-                        
-                        # Live polling loop
-                        progress_bar = st.progress(0)
-                        status_box = st.status("Agents executing sequentially...", expanded=True)
-                        
-                        for i in range(40):
-                            time.sleep(3)
-                            # Poll trace
-                            trace_resp = requests.get(f"{API_BASE}/research/{st.session_state.run_id}/trace", timeout=5)
-                            trace = trace_resp.json().get("trace", []) if trace_resp.ok else []
-                            
-                            completed = [t["node"] for t in trace]
-                            current_node = "planner"
-                            if completed:
-                                current_node = completed[-1]
-                            st.session_state.active_agent = current_node
-                            
-                            # Render updated HTML trace
-                            status_box.empty()
-                            with status_box:
-                                st.markdown(render_pipeline_trace(current_node), unsafe_allow_html=True)
-                                for node_done in completed:
-                                    st.write(f"✅ Node **{node_done.upper()}** execution finished.")
-                                    
-                            progress_bar.progress(min((i + 1) / 40, 0.95))
-                            
-                            # Check if complete
-                            report_resp = requests.get(f"{API_BASE}/research/{st.session_state.run_id}", timeout=5)
-                            if report_resp.status_code == 200:
-                                st.session_state.result = report_resp.json()
-                                progress_bar.empty()
-                                status_box.update(label="Research Complete!", state="complete")
-                                break
-                        else:
-                            st.error("Research timed out. Reloading to check results.")
-                    else:
-                        st.error(f"API Error: {resp.text}")
-                except Exception as e:
-                    st.error(f"Connection failed: {e}")
+    # ── LOCAL MODE (FASTAPI ACTIVE) ──────────────────────────────────────
+    if api_active:
+        with st.spinner(f"Kicking off FastAPI agent run for {ticker_input}..."):
+            try:
+                resp = requests.post(f"{API_BASE}/research/{ticker_input}", timeout=10)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    st.session_state.run_id = data["run_id"]
                     
-        # ── CLOUD MODE (IN-PROCESS EXECUTION) ────────────────────────────────
-        else:
-            if not api_key_input:
-                st.error("Please enter a Gemini API Key in the sidebar or load the NVIDIA pre-computed demo.")
-            else:
-                os.environ["GEMINI_API_KEY"] = api_key_input
-                os.environ["SEC_USER_AGENT"] = user_agent_input
-                
-                # Dynamic stream function
-                def run_research_stream(ticker: str):
-                    from agents.graph import build_graph
-                    import uuid
-                    run_id = str(uuid.uuid4())
-                    graph = build_graph()
-                    initial_state = {
-                        "ticker": ticker.upper().strip(),
-                        "run_id": run_id,
-                        "company_name": "",
-                        "task_list": [],
-                        "filings": [],
-                        "filing_texts": [],
-                        "market_data": {},
-                        "news_items": [],
-                        "collection_name": "",
-                        "financial_ratios": {},
-                        "key_metrics": {},
-                        "analyst_summary": "",
-                        "draft_report": "",
-                        "citations": [],
-                        "verifier_iteration": 0,
-                        "verifier_feedback": "",
-                        "unverified_claims": [],
-                        "final_report": "",
-                        "confidence_by_section": {},
-                        "error": None,
-                        "trace": [],
-                    }
-                    state = initial_state
-                    yield "start", state
-                    for event in graph.stream(initial_state):
-                        for node_name, state_update in event.items():
-                            state = {**state, **state_update}
-                            yield node_name, state
-                    yield "completed", state
-
-                # Start streaming logs
-                progress_bar = st.progress(0)
-                status_box = st.status("Initializing in-process Agent Graph...", expanded=True)
-                
-                try:
-                    state_trace = []
-                    steps = ["planner", "retriever", "analyst", "writer", "verifier", "assembler"]
-                    for idx, (node_name, state) in enumerate(run_research_stream(ticker_input)):
-                        if node_name == "start":
-                            status_box.write("🚀 Graph initialized. Routing to **PLANNER**.")
-                            st.session_state.active_agent = "planner"
-                        elif node_name == "completed":
-                            status_box.write("🎉 Execution finished! Reconciling final report.")
-                            # Format state response
-                            citations = state.get("citations", [])
-                            verified = [c for c in citations if c.get("verified")]
-                            st.session_state.result = {
-                                "ticker": state.get("ticker", ""),
-                                "company_name": state.get("company_name", ""),
-                                "final_report": state.get("final_report", ""),
-                                "citation_count": len(citations),
-                                "verified_citation_count": len(verified),
-                                "citation_coverage_pct": round(len(verified) / max(len(citations), 1) * 100, 1),
-                                "unverified_claims": state.get("unverified_claims", []),
-                                "confidence_by_section": state.get("confidence_by_section", {}),
-                                "financial_ratios": state.get("financial_ratios", {}),
-                                "trace_node_count": len(state.get("trace", [])),
-                                "error": state.get("error"),
-                            }
-                            st.session_state.run_id = state.get("run_id")
-                        else:
-                            st.session_state.active_agent = node_name
-                            status_box.write(f"🤖 Active Agent Node: **{node_name.upper()}** has completed execution.")
-                            
-                        # Update HTML graph
+                    # Live polling loop
+                    progress_bar = st.progress(0)
+                    status_box = st.status("Agents executing sequentially...", expanded=True)
+                    
+                    for i in range(40):
+                        time.sleep(3)
+                        # Poll trace
+                        trace_resp = requests.get(f"{API_BASE}/research/{st.session_state.run_id}/trace", timeout=5)
+                        trace = trace_resp.json().get("trace", []) if trace_resp.ok else []
+                        
+                        completed = [t["node"] for t in trace]
+                        current_node = "planner"
+                        if completed:
+                            current_node = completed[-1]
+                        st.session_state.active_agent = current_node
+                        
+                        # Render updated HTML trace
                         status_box.empty()
                         with status_box:
-                            st.markdown(render_pipeline_trace(st.session_state.active_agent), unsafe_allow_html=True)
-                            
-                        if node_name in steps:
-                            progress_val = (steps.index(node_name) + 1) / len(steps)
-                            progress_bar.progress(min(progress_val, 0.95))
-                            
-                    progress_bar.empty()
-                    status_box.update(label="In-process run completed successfully!", state="complete")
-                except Exception as ex:
-                    st.error(f"In-process execution failed: {ex}")
-                    st.exception(ex)
+                            st.markdown(render_pipeline_trace(current_node), unsafe_allow_html=True)
+                            for node_done in completed:
+                                st.write(f"✅ Node **{node_done.upper()}** execution finished.")
+                                
+                        progress_bar.progress(min((i + 1) / 40, 0.95))
+                        
+                        # Check if complete
+                        report_resp = requests.get(f"{API_BASE}/research/{st.session_state.run_id}", timeout=5)
+                        if report_resp.status_code == 200:
+                            st.session_state.result = report_resp.json()
+                            progress_bar.empty()
+                            status_box.update(label="Research Complete!", state="complete")
+                            break
+                    else:
+                        st.error("Research timed out. Reloading to check results.")
+                else:
+                    st.error(f"API Error: {resp.text}")
+            except Exception as e:
+                st.error(f"Connection failed: {e}")
+                
+    # ── CLOUD MODE (IN-PROCESS EXECUTION) ────────────────────────────────
+    else:
+        if not api_key_input:
+            st.error("Please enter a Gemini API Key in the sidebar or load the NVIDIA pre-computed demo.")
+        else:
+            os.environ["GEMINI_API_KEY"] = api_key_input
+            os.environ["SEC_USER_AGENT"] = user_agent_input
+            
+            # Dynamic stream function
+            def run_research_stream(ticker: str):
+                from agents.graph import build_graph
+                import uuid
+                run_id = str(uuid.uuid4())
+                graph = build_graph()
+                initial_state = {
+                    "ticker": ticker.upper().strip(),
+                    "run_id": run_id,
+                    "company_name": "",
+                    "task_list": [],
+                    "filings": [],
+                    "filing_texts": [],
+                    "market_data": {},
+                    "news_items": [],
+                    "collection_name": "",
+                    "financial_ratios": {},
+                    "key_metrics": {},
+                    "analyst_summary": "",
+                    "draft_report": "",
+                    "citations": [],
+                    "verifier_iteration": 0,
+                    "verifier_feedback": "",
+                    "unverified_claims": [],
+                    "final_report": "",
+                    "confidence_by_section": {},
+                    "error": None,
+                    "trace": [],
+                }
+                state = initial_state
+                yield "start", state
+                for event in graph.stream(initial_state):
+                    for node_name, state_update in event.items():
+                        state = {**state, **state_update}
+                        yield node_name, state
+                yield "completed", state
 
-    # ── Display Results ──────────────────────────────────────────────────────────
-    if st.session_state.result:
-        res = st.session_state.result
-        ticker = res.get("ticker", "")
-        company = res.get("company_name", ticker)
+            # Start streaming logs
+            progress_bar = st.progress(0)
+            status_box = st.status("Initializing in-process Agent Graph...", expanded=True)
+            
+            try:
+                state_trace = []
+                steps = ["planner", "retriever", "analyst", "writer", "verifier", "assembler"]
+                for idx, (node_name, state) in enumerate(run_research_stream(ticker_input)):
+                    if node_name == "start":
+                        status_box.write("🚀 Graph initialized. Routing to **PLANNER**.")
+                        st.session_state.active_agent = "planner"
+                    elif node_name == "completed":
+                        status_box.write("🎉 Execution finished! Reconciling final report.")
+                        # Format state response
+                        citations = state.get("citations", [])
+                        verified = [c for c in citations if c.get("verified")]
+                        st.session_state.result = {
+                            "ticker": state.get("ticker", ""),
+                            "company_name": state.get("company_name", ""),
+                            "final_report": state.get("final_report", ""),
+                            "citation_count": len(citations),
+                            "verified_citation_count": len(verified),
+                            "citation_coverage_pct": round(len(verified) / max(len(citations), 1) * 100, 1),
+                            "unverified_claims": state.get("unverified_claims", []),
+                            "confidence_by_section": state.get("confidence_by_section", {}),
+                            "financial_ratios": state.get("financial_ratios", {}),
+                            "trace_node_count": len(state.get("trace", [])),
+                            "error": state.get("error"),
+                        }
+                        st.session_state.run_id = state.get("run_id")
+                    else:
+                        st.session_state.active_agent = node_name
+                        status_box.write(f"🤖 Active Agent Node: **{node_name.upper()}** has completed execution.")
+                        
+                    # Update HTML graph
+                    status_box.empty()
+                    with status_box:
+                        st.markdown(render_pipeline_trace(st.session_state.active_agent), unsafe_allow_html=True)
+                        
+                    if node_name in steps:
+                        progress_val = (steps.index(node_name) + 1) / len(steps)
+                        progress_bar.progress(min(progress_val, 0.95))
+                        
+                progress_bar.empty()
+                status_box.update(label="In-process run completed successfully!", state="complete")
+            except Exception as ex:
+                st.error(f"In-process execution failed: {ex}")
+                st.exception(ex)
+
+# Display active pipeline
+if st.session_state.active_agent:
+    st.markdown(render_pipeline_trace(st.session_state.active_agent), unsafe_allow_html=True)
+
+# ── Display Results ──────────────────────────────────────────────────────────
+if st.session_state.result:
+    res = st.session_state.result
+    ticker = res.get("ticker", "")
+    company = res.get("company_name", ticker)
+    
+    st.subheader(f"📋 {company} ({ticker}) — Research Report")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        cov = res.get("citation_coverage_pct", 0)
+        color = "🟢" if cov >= 80 else "🟡" if cov >= 60 else "🔴"
+        st.metric("Citation Coverage", f"{color} {cov:.0f}%")
+    with col2:
+        st.metric("Citations Verified", f"{res.get('verified_citation_count', 0)}/{res.get('citation_count', 0)}")
+    with col3:
+        st.metric("Agent Nodes Run", res.get("trace_node_count", 0))
+    with col4:
+        unv = len(res.get("unverified_claims", []))
+        st.metric("Unverified Claims", f"⚠️ {unv}" if unv > 0 else "✅ 0")
         
-        st.markdown(render_pipeline_trace("Assembler"), unsafe_allow_html=True)
+    st.divider()
+    
+    # Ratios & Report Side by Side
+    col_rep, col_rat = st.columns([2, 1])
+    
+    with col_rep:
+        st.subheader("📄 Factual Research Report")
+        st.markdown(res.get("final_report", "Report not available."))
         
-        st.subheader(f"📋 {company} ({ticker}) — Research Report")
+    with col_rat:
+        st.subheader("📊 Financial Ratios")
+        st.caption("Computed deterministically from raw SEC XBRL values.")
         
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            cov = res.get("citation_coverage_pct", 0)
-            color = "🟢" if cov >= 80 else "🟡" if cov >= 60 else "🔴"
-            st.metric("Citation Coverage", f"{color} {cov:.0f}%")
-        with col2:
-            st.metric("Citations Verified", f"{res.get('verified_citation_count', 0)}/{res.get('citation_count', 0)}")
-        with col3:
-            st.metric("Agent Nodes Run", res.get("trace_node_count", 0))
-        with col4:
-            unv = len(res.get("unverified_claims", []))
-            st.metric("Unverified Claims", f"⚠️ {unv}" if unv > 0 else "✅ 0")
+        ratios = res.get("financial_ratios", {})
+        if ratios:
+            ratio_data = []
+            for name, data in ratios.items():
+                val = data.get("value", None)
+                src = data.get("source", "")
+                if isinstance(val, float):
+                    display = f"{val:.2f}"
+                    if "pct" in name or "margin" in name or "growth" in name or "return" in name:
+                        display += "%"
+                else:
+                    display = f"{val:,}" if isinstance(val, (int, float)) else str(val)
+                ratio_data.append({
+                    "Metric": name.replace("_", " ").title(),
+                    "Value": display,
+                    "Source": src,
+                })
+            st.dataframe(pd.DataFrame(ratio_data), use_container_width=True, hide_index=True)
+        else:
+            st.info("No ratios computed.")
             
         st.divider()
-        
-        # Tabs
-        tab1, tab2, tab3 = st.tabs(["📄 Final Report & Citations", "📊 Financial Ratios", "🔍 Verifier Audit Logs"])
-        
-        with tab1:
-            st.markdown(res.get("final_report", "Report not available."))
+        st.subheader("🔍 Claim Verification Log")
+        unverified = res.get("unverified_claims", [])
+        if unverified:
+            st.warning(f"⚠️ {len(unverified)} claim(s) failed verification:")
+            for i, claim in enumerate(unverified, 1):
+                with st.expander(f"Failed Claim {i}"):
+                    st.text(claim)
+        else:
+            st.success("✅ All claims successfully verified against source passages!")
             
-        with tab2:
-            ratios = res.get("financial_ratios", {})
-            if ratios:
-                st.subheader("📊 Computed Financial Ratios")
-                st.caption("All ratios computed by deterministic Python code from SEC EDGAR XBRL data.")
-                
-                ratio_data = []
-                for name, data in ratios.items():
-                    val = data.get("value", None)
-                    src = data.get("source", "")
-                    if isinstance(val, float):
-                        display = f"{val:.2f}"
-                        if "pct" in name or "margin" in name or "growth" in name or "return" in name:
-                            display += "%"
-                    else:
-                        display = f"{val:,}" if isinstance(val, (int, float)) else str(val)
-                    ratio_data.append({
-                        "Metric": name.replace("_", " ").title(),
-                        "Value": display,
-                        "Source": src,
-                    })
-                st.dataframe(pd.DataFrame(ratio_data), use_container_width=True, hide_index=True)
-            else:
-                st.info("No ratios computed (insufficient XBRL data).")
-                
-        with tab3:
-            st.subheader("🔍 Verifier Factual Verification Audit")
-            unverified = res.get("unverified_claims", [])
-            if unverified:
-                st.warning(f"⚠️ {len(unverified)} claim(s) could not be verified:")
-                for i, claim in enumerate(unverified, 1):
-                    with st.expander(f"Unverified Claim {i}"):
-                        st.text(claim)
-            else:
-                st.success("✅ All claims successfully verified against source documents!")
-                
-            confidence = res.get("confidence_by_section", {})
-            if confidence:
-                st.subheader("Confidence Score by Section")
-                st.bar_chart(pd.DataFrame(list(confidence.items()), columns=["Section", "Confidence"]).set_index("Section"))
-                
-    elif not run_btn:
-        st.info("👈 Enter a stock ticker in the sidebar and click **Run Multi-Agent System** or load the pre-loaded Nvidia report to get started!")
+        confidence = res.get("confidence_by_section", {})
+        if confidence:
+            st.caption("Confidence scores by section:")
+            st.bar_chart(pd.DataFrame(list(confidence.items()), columns=["Section", "Confidence"]).set_index("Section"))
+
+elif not run_btn:
+    st.info("👈 Enter a stock ticker in the sidebar and click **Run Multi-Agent System** (or load the NVIDIA demo report) to see the report, ratios, and factual claim verifications dynamically.")
