@@ -1,0 +1,15 @@
+# .gitignore for verity-financial-research
+.env
+*.pyc
+__pycache__/
+.venv/
+venv/
+chroma_db/
+audit_logs/
+*.json
+!.env.example
+.pytest_cache/
+dist/
+build/
+*.egg-info/
+.DS_Store
