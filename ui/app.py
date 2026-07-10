@@ -70,6 +70,11 @@ def render_pipeline_trace(active_node=None):
     
     html = """
     <style>
+    body {
+        margin: 0;
+        background: transparent;
+        overflow: hidden;
+    }
     .pipeline-container {
         display: flex;
         flex-direction: row;
@@ -82,6 +87,7 @@ def render_pipeline_trace(active_node=None):
         border-radius: 10px;
         margin-bottom: 20px;
         overflow-x: auto;
+        box-sizing: border-box;
     }
     .pipeline-node {
         display: flex;
@@ -276,6 +282,7 @@ if run_btn and ticker_input:
                     
                     # Live polling loop
                     progress_bar = st.progress(0)
+                    pipeline_placeholder = st.empty()
                     status_box = st.status("Agents executing sequentially...", expanded=True)
                     
                     for i in range(40):
@@ -291,9 +298,11 @@ if run_btn and ticker_input:
                         st.session_state.active_agent = current_node
                         
                         # Render updated HTML trace
+                        with pipeline_placeholder:
+                            st.components.v1.html(render_pipeline_trace(current_node), height=120, scrolling=False)
+                            
                         status_box.empty()
                         with status_box:
-                            st.markdown(render_pipeline_trace(current_node), unsafe_allow_html=True)
                             for node_done in completed:
                                 st.write(f"✅ Node **{node_done.upper()}** execution finished.")
                                 
@@ -360,6 +369,7 @@ if run_btn and ticker_input:
 
             # Start streaming logs
             progress_bar = st.progress(0)
+            pipeline_placeholder = st.empty()
             status_box = st.status("Initializing in-process Agent Graph...", expanded=True)
             
             try:
@@ -393,9 +403,8 @@ if run_btn and ticker_input:
                         status_box.write(f"🤖 Active Agent Node: **{node_name.upper()}** has completed execution.")
                         
                     # Update HTML graph
-                    status_box.empty()
-                    with status_box:
-                        st.markdown(render_pipeline_trace(st.session_state.active_agent), unsafe_allow_html=True)
+                    with pipeline_placeholder:
+                        st.components.v1.html(render_pipeline_trace(st.session_state.active_agent), height=120, scrolling=False)
                         
                     if node_name in steps:
                         progress_val = (steps.index(node_name) + 1) / len(steps)
@@ -409,7 +418,7 @@ if run_btn and ticker_input:
 
 # Display active pipeline
 if st.session_state.active_agent:
-    st.markdown(render_pipeline_trace(st.session_state.active_agent), unsafe_allow_html=True)
+    st.components.v1.html(render_pipeline_trace(st.session_state.active_agent), height=120, scrolling=False)
 
 # ── Display Results ──────────────────────────────────────────────────────────
 if st.session_state.result:
