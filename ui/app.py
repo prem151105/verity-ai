@@ -35,25 +35,73 @@ api_active = check_api_server()
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;700&display=swap');
+
+html, body, [class*="css"] { font-family: 'Inter', sans-serif; background-color: #0A1220; color: #EDEFF5; }
+h1, h2, h3 { font-family: 'Source Serif 4', serif; }
+code, .jetbrains-font { font-family: 'JetBrains Mono', monospace; }
 
 .metric-card {
-    background: linear-gradient(135deg, #1e293b, #0f172a);
-    border: 1px solid #334155;
+    background: #111A2E;
+    border: 1px solid #1e293b;
     border-radius: 12px;
     padding: 1.2rem;
     margin: 0.4rem 0;
     box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
 }
+
 .verified-badge {
-    background: #065f46; color: #6ee7b7;
-    padding: 2px 8px; border-radius: 999px; font-size: 0.75rem; font-weight: 600;
+    background: rgba(34, 197, 94, 0.15); color: #22C55E;
+    padding: 10px 14px; border-radius: 6px; font-size: 0.9rem; font-weight: 500;
+    border-left: 4px solid #22C55E;
+    display: block; margin: 10px 0;
 }
 .unverified-badge {
-    background: #7f1d1d; color: #fca5a5;
-    padding: 2px 8px; border-radius: 999px; font-size: 0.75rem; font-weight: 600;
+    background: rgba(239, 68, 68, 0.15); color: #EF4444;
+    padding: 10px 14px; border-radius: 6px; font-size: 0.9rem; font-weight: 500;
+    border-left: 4px solid #EF4444;
+    display: block; margin: 10px 0;
 }
-.stProgress > div > div { background: linear-gradient(90deg, #6366f1, #8b5cf6); }
+.stProgress > div > div { background: #6366F1; }
+
+/* Signature Moment Animation */
+.hero-anim-container {
+    display: flex; gap: 20px; align-items: center; justify-content: center;
+    background: #111A2E; padding: 30px; border-radius: 12px; margin-bottom: 30px;
+    border: 1px solid #1e293b;
+}
+.anim-agent-box {
+    background: #0A1220; border: 1px solid #334155; border-radius: 8px; padding: 16px;
+    width: 300px; text-align: left;
+}
+.anim-title { font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; color: #94a3b8; margin-bottom: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
+.anim-content { font-size: 1.1rem; line-height: 1.5; }
+.cite-tag { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: #94a3b8; background: #1e293b; padding: 2px 6px; border-radius: 4px; }
+
+@keyframes claimCorrection {
+    0%, 20% { content: "$500B"; color: #EDEFF5; }
+    25%, 45% { content: "$500B"; color: #EF4444; }
+    50%, 95% { content: "$300B"; color: #22C55E; }
+    100% { content: "$500B"; color: #EDEFF5; }
+}
+@keyframes verifierStatus {
+    0%, 20% { content: "Checking source [10-Q | pg. 14]..."; color: #94a3b8; }
+    25%, 45% { content: "Mismatched! Source says $300B. Rejecting claim."; color: #EF4444; }
+    50%, 95% { content: "Verified. Source matches claim."; color: #22C55E; }
+    100% { content: "Checking source [10-Q | pg. 14]..."; color: #94a3b8; }
+}
+@keyframes verifierBoxShadow {
+    0%, 20% { border-color: #334155; box-shadow: none; }
+    25%, 45% { border-color: #EF4444; box-shadow: 0 0 15px rgba(239, 68, 68, 0.2); }
+    50%, 95% { border-color: #22C55E; box-shadow: 0 0 15px rgba(34, 197, 94, 0.2); }
+    100% { border-color: #334155; box-shadow: none; }
+}
+
+.anim-claim-value::after { content: "$500B"; animation: claimCorrection 8s infinite; font-weight: 600; }
+.anim-verifier-text::after { content: "Checking source [10-Q | pg. 14]..."; animation: verifierStatus 8s infinite; }
+.verifier-box { animation: verifierBoxShadow 8s infinite; }
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -78,14 +126,14 @@ def render_pipeline_trace(active_node=None):
     .pipeline-container {
         display: flex;
         flex-direction: row;
-        justify-content: space-between;
+        justify-content: center;
         align-items: center;
         width: 100%;
-        padding: 12px 18px;
-        background: #0f172a;
-        border: 1px solid #334155;
-        border-radius: 10px;
-        margin-bottom: 20px;
+        padding: 24px 18px;
+        background: #111A2E;
+        border: 1px solid #1e293b;
+        border-radius: 12px;
+        margin-bottom: 30px;
         overflow-x: auto;
         box-sizing: border-box;
     }
@@ -93,45 +141,45 @@ def render_pipeline_trace(active_node=None):
         display: flex;
         flex-direction: column;
         align-items: center;
-        padding: 8px 12px;
-        border-radius: 6px;
-        background: #1e293b;
+        padding: 12px 16px;
+        border-radius: 8px;
+        background: #0A1220;
         border: 1px solid #334155;
-        min-width: 130px;
+        min-width: 140px;
         text-align: center;
         transition: all 0.3s ease;
     }
     .pipeline-node.active {
-        background: linear-gradient(135deg, #4f46e5, #8b5cf6);
-        border: 2px solid #c084fc;
-        box-shadow: 0 0 12px rgba(139, 92, 246, 0.6);
-        transform: scale(1.03);
+        background: #6366F1;
+        border: 2px solid #818cf8;
+        box-shadow: 0 0 20px rgba(99, 102, 241, 0.4);
+        transform: scale(1.05);
     }
     .pipeline-node.completed {
-        border-color: #10b981;
-        background: #064e3b;
+        border-color: #4f46e5;
+        background: rgba(79, 70, 229, 0.1);
     }
     .node-icon {
-        font-size: 1.3rem;
-        margin-bottom: 2px;
+        font-size: 1.5rem;
+        margin-bottom: 4px;
     }
     .node-name {
         font-weight: 700;
-        font-size: 0.85rem;
-        color: #f8fafc;
+        font-size: 0.9rem;
+        color: #EDEFF5;
     }
     .node-desc {
-        font-size: 0.65rem;
+        font-size: 0.7rem;
         color: #94a3b8;
     }
-    .pipeline-node.active .node-desc {
-        color: #e9d5ff;
+    .pipeline-node.active .node-desc, .pipeline-node.active .node-name {
+        color: #ffffff;
     }
     .pipeline-arrow {
-        color: #475569;
-        font-size: 1.2rem;
+        color: #334155;
+        font-size: 1.5rem;
         font-weight: bold;
-        margin: 0 4px;
+        margin: 0 10px;
         user-select: none;
     }
     </style>
@@ -220,7 +268,7 @@ with st.sidebar:
     user_agent_input = ""
     
     if use_in_process:
-        st.info("No API backend detected. Enter keys to run in-process, or click the pre-loaded demo below.")
+        st.info("Running self-contained — add a Gemini key or load the demo below.")
         api_key_input = st.text_input("Gemini API Key", type="password", value=os.environ.get("GEMINI_API_KEY", ""))
         user_agent_input = st.text_input("SEC User-Agent Header", placeholder="YourName contact@domain.com", value=os.environ.get("SEC_USER_AGENT", "VerityDemo/1.0 User@example.com"))
         
@@ -234,29 +282,34 @@ with st.sidebar:
     if api_active:
         st.success("🟢 Local API Connected")
     else:
-        st.info("☁️ Streamlit Cloud Mode Active")
+        st.info("☁️ Running self-contained — add a Gemini key or load the demo below.")
 
 # ── MAIN PANEL ────────────────────────────────────────────────────────────────
-st.title("📊 Verity — Multi-Agent Financial Research & Verification")
+st.title("Verity — Verified Financial Research")
 st.write(
-    "Verity is an autonomous research system built on **LangGraph**. It fetches raw SEC Edgar filings "
-    "and fundamentals, computes financial ratios using isolated python execution, and uses an anti-hallucination "
-    "Verifier Agent to cross-check every claim against source documents before generating final reports."
+    "Verity is an autonomous research system built on **LangGraph**. A team of 6 LLM agents retrieves raw SEC filings, "
+    "computes financial ratios, and drafts a cited equity research report. The core differentiator is the **Verifier Agent**, "
+    "which catches hallucinations by cross-checking every claim against its source before publication."
 )
 
-st.divider()
-
-# Renders the architecture diagram on the main page
-st.subheader("🕸️ System Architecture & Agent Flow")
-if os.path.exists("verity-ai.png"):
-    st.image("verity-ai.png", caption="Verity Multi-Agent Process Flow Chart", use_container_width=True)
-else:
-    st.info("System architecture diagram (verity-ai.png) not found.")
+st.html("""
+<div class="hero-anim-container">
+    <div class="anim-agent-box">
+        <div class="anim-title">✍️ Writer Agent</div>
+        <div class="anim-content">NVIDIA Q3 Revenue was <span class="anim-claim-value"></span> <span class="cite-tag">[[CITE: 10-Q | pg. 14]]</span></div>
+    </div>
+    <div style="font-size: 24px; color: #475569;">➔</div>
+    <div class="anim-agent-box verifier-box">
+        <div class="anim-title">🔍 Verifier Agent</div>
+        <div class="anim-content anim-verifier-text" style="font-family: 'JetBrains Mono', monospace; font-size: 0.9rem;"></div>
+    </div>
+</div>
+""")
 
 st.divider()
 
 # Interactive Console Runner
-st.subheader("⚡ Live Multi-Agent Execution & Reports")
+st.subheader("Live Multi-Agent Execution")
 
 # Check triggers
 if load_demo_btn:
@@ -299,7 +352,7 @@ if run_btn and ticker_input:
                         
                         # Render updated HTML trace
                         with pipeline_placeholder:
-                            st.components.v1.html(render_pipeline_trace(current_node), height=120, scrolling=False)
+                            st.components.v1.html(render_pipeline_trace(current_node), height=180, scrolling=False)
                             
                         status_box.empty()
                         with status_box:
@@ -404,7 +457,7 @@ if run_btn and ticker_input:
                         
                     # Update HTML graph
                     with pipeline_placeholder:
-                        st.components.v1.html(render_pipeline_trace(st.session_state.active_agent), height=120, scrolling=False)
+                        st.components.v1.html(render_pipeline_trace(st.session_state.active_agent), height=180, scrolling=False)
                         
                     if node_name in steps:
                         progress_val = (steps.index(node_name) + 1) / len(steps)
@@ -418,7 +471,7 @@ if run_btn and ticker_input:
 
 # Display active pipeline
 if st.session_state.active_agent:
-    st.components.v1.html(render_pipeline_trace(st.session_state.active_agent), height=120, scrolling=False)
+    st.components.v1.html(render_pipeline_trace(st.session_state.active_agent), height=180, scrolling=False)
 
 # ── Display Results ──────────────────────────────────────────────────────────
 if st.session_state.result:
@@ -492,4 +545,4 @@ if st.session_state.result:
             st.bar_chart(pd.DataFrame(list(confidence.items()), columns=["Section", "Confidence"]).set_index("Section"))
 
 elif not run_btn:
-    st.info("👈 Enter a stock ticker in the sidebar and click **Run Multi-Agent System** (or load the NVIDIA demo report) to see the report, ratios, and factual claim verifications dynamically.")
+    st.info("👋 Welcome to Verity. To start, enter a stock ticker in the sidebar and run the agents, or load the pre-computed demo.")

@@ -8,13 +8,25 @@
 
 > **Give it a stock ticker.** A team of 6 LLM agents retrieves real SEC filings, computes financial ratios from XBRL data, and drafts a cited equity research report — and then **a dedicated Verifier agent re-checks every claim against its source before the report ships**, flagging anything it can't back up.
 
+[![Live Demo](https://img.shields.io/badge/Live-Demo-blue?style=for-the-badge&logo=streamlit)](https://verity-ai.streamlit.app/)
+
+![Demo](demo.gif)
+
 ---
 
 ## 🏛️ System Architecture
 
 Verity uses **LangGraph's** explicit state-graph routing to build a multi-agent assembly line. Each agent is modeled as a specialized node with typed state, allowing deterministic loops, real-time logging, and absolute visibility.
 
-![Verity AI Architecture](verity-ai.png)
+```mermaid
+graph TD
+    A[Planner: Maps CIK & Tasks] --> B[Retriever: Fetches SEC 10-K/10-Q]
+    B --> C[Analyst: Computes Ratios from XBRL]
+    C --> D[Writer: Drafts Cited Report]
+    D --> E{Verifier: Factual Claim Evaluator}
+    E -->|Passage Mismatches| D
+    E -->|Passage Matches| F[Assembler: Indexes & Publishes]
+```
 
 ### Agent Roles & Responsibilities
 
@@ -65,7 +77,7 @@ graph TD
 ### 1. Clone & Set Up Virtual Environment
 ```bash
 git clone https://github.com/prem151105/verity-ai.git
-cd verity-financial-research
+cd verity-ai
 
 # Create and activate environment
 python -m venv .venv
@@ -106,7 +118,7 @@ Open [http://localhost:8501](http://localhost:8501) in your browser.
 
 We ran automated evaluations across multiple major companies (10-Ks) to measure system reliability.
 
-See the complete performance metrics in [eval/results.md](file:///d:/PROJECTS/verity-financial-research/eval/results.md):
+See the complete performance metrics in [eval/results.md](eval/results.md):
 - **Citation Coverage:** percentage of factual claims backed by a valid, verifiable citation (target: >85%).
 - **Verification Accuracy:** LLM-as-a-judge score of fact-matching consistency.
 - **Latency:** E2E runtime for full graph traversal.
