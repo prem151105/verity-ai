@@ -52,6 +52,8 @@ def run_eval():
         try:
             state = run_research(ticker)
             elapsed = time.monotonic() - run_start
+            if state.get("error"):
+                raise RuntimeError(state["error"])
 
             citations = state.get("citations", [])
             total = len(citations)

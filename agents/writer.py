@@ -208,12 +208,12 @@ def _extract_citations(report_text: str) -> list[dict]:
         start_idx = max(0, match.start() - 200)
         claim_context = report_text[start_idx:match.start()].strip()
         # Get the last sentence as the claim
-        sentences = claim_context.split('.')
+        sentences = re.split(r"(?<=[.!?])\s+|\n", claim_context)
         claim = (sentences[-1] if sentences else claim_context).strip()
         citations.append({
             "claim": claim[:300],
             "source": source,
-            "passage": passage[:500],
+            "passage": passage,
             "verified": False,
             "confidence": 0.0,
         })

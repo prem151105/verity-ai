@@ -58,6 +58,8 @@ class VerityState(TypedDict):
     citations: list[dict]      # Serialized Citation objects
 
     # ── Verifier state ────────────────────────────────────────────────────────
+    verification_remote_used: int
+    verification_metrics: dict
     verifier_iteration: int    # Current retry count (max = VERIFIER_MAX_RETRIES)
     verifier_feedback: str     # Feedback from verifier to writer
     unverified_claims: list[str]  # Claims the verifier could NOT verify

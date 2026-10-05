@@ -68,7 +68,7 @@ def retriever_node(state: VerityState) -> VerityState:
             })
 
             if text:
-                filing_texts.append({"source": source_label, "text": text[:5000]})  # store preview
+                filing_texts.append({"source": source_label, "text": text})  # retain independent evidence for verification
                 chunks_added = vs.add_document(
                     collection_name=collection_name,
                     text=text,
@@ -95,6 +95,7 @@ def retriever_node(state: VerityState) -> VerityState:
         })
         # Also embed a structured text summary of metrics for retrieval
         metrics_text = _metrics_to_text(ticker, key_metrics)
+        filing_texts.append({"source": f"XBRL Financial Facts — {ticker}", "text": metrics_text})
         vs.add_document(
             collection_name=collection_name,
             text=metrics_text,
@@ -138,6 +139,7 @@ def retriever_node(state: VerityState) -> VerityState:
 
         # Embed market data summary
         mkt_text = _market_data_to_text(ticker, market_data)
+        filing_texts.append({"source": f"Market Data (yfinance) — {ticker}", "text": mkt_text})
         vs.add_document(
             collection_name=collection_name,
             text=mkt_text,
@@ -157,6 +159,7 @@ def retriever_node(state: VerityState) -> VerityState:
                     f"**{n['title']}** ({n['published_at']})\n{n.get('description', '')}"
                     for n in news_items
                 )
+                filing_texts.append({"source": f"News (last 30 days) — {ticker}", "text": news_text})
                 vs.add_document(
                     collection_name=collection_name,
                     text=news_text,

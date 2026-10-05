@@ -167,9 +167,9 @@ def _build_citation_index(citations: list[dict]) -> str:
         status = "✅" if c.get("verified") else "❌ [UNVERIFIED]"
         confidence = c.get("confidence", 0.0)
         source = c.get("source", "Unknown source")
-        passage = c.get("passage", "")[:200]
+        passage = (c.get("retrieved_passage") or "No independent evidence found")[:200]
         lines.append(
-            f"{i}. {status} **{source}** (confidence: {confidence:.0%})\n"
+            f"{i}. {status} **{source}** (routing score: {confidence:.0%}; uncalibrated)\n"
             f"   > {passage}\n"
         )
     return "\n".join(lines)
@@ -188,16 +188,12 @@ def _compute_section_confidence(report: str, citations: list[dict]) -> dict[str,
         if not match:
             continue
         section_text = match.group(1)
-        # Count citations in this section
-        cites_in_section = re.findall(r'\[\[CITE:.*?\]\]', section_text, re.DOTALL)
-        if not cites_in_section:
-            confidence[section] = 0.5  # no citations = uncertain
+        markers = re.findall(r'\[\[CITE:\s*(.*?)\s*\|\s*(.*?)\]\]', section_text, re.DOTALL)
+        if not markers:
+            confidence[section] = 0.0
             continue
-        # Find matching citations and compute average confidence
-        n = len(cites_in_section)
-        avg = 0.7  # default if we can't match precisely
-        if citations:
-            relevant = citations[:n]
-            avg = sum(c.get("confidence", 0.5) for c in relevant) / len(relevant)
-        confidence[section] = round(avg, 2)
+        matched = [next((c for c in citations if c.get("source", "").strip() == source.strip()
+                         and c.get("passage", "").strip() == passage.strip()), {})
+                   for source, passage in markers]
+        confidence[section] = round(sum(bool(c.get("verified")) for c in matched) / len(markers), 2)
     return confidence

@@ -21,7 +21,7 @@ from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from api.models import ResearchRequest, ResearchResponse, ReportResponse, TraceEntry
+from api.models import ResearchRequest, ResearchResponse, ReportResponse, TraceEntry, VerificationRequest
 from config import settings
 
 logging.basicConfig(
@@ -50,7 +50,7 @@ app = FastAPI(
     description=(
         "A 6-agent LangGraph system that autonomously retrieves SEC filings "
         "and market data, generates cited equity research reports, and "
-        "verifies every claim against its source."
+        "checks cited claims using source-anchored, budgeted verification."
     ),
     version="1.0.0",
     lifespan=lifespan,
@@ -62,6 +62,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.post("/verify")
+def verify_evidence(request: VerificationRequest):
+    """Local rules-only verification of supplied evidence; never invokes a cloud model."""
+    from research.cascade import Cascade
+    return Cascade().verify(
+        [c.model_dump() for c in request.claims],
+        [d.model_dump() for d in request.documents],
+    )
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────

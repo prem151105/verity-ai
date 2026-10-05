@@ -69,9 +69,8 @@ class TestVerifierLogic:
         }
 
     @patch("agents.verifier.call_llm")
-    @patch("tools.vector_store.VectorStore")
     @patch("agents.verifier.AuditLogger")
-    def test_verifier_flags_unsupported_claim(self, mock_audit, mock_vs, mock_llm):
+    def test_verifier_flags_unsupported_claim(self, mock_audit, mock_llm):
         """
         CORE TEST: Verifier must detect when a passage does NOT support a claim.
         This is the test that proves the anti-hallucination loop works.
@@ -87,9 +86,6 @@ class TestVerifierLogic:
         })
 
         # VS returns no chunks (isolated test)
-        mock_vs_instance = MagicMock()
-        mock_vs_instance.query.return_value = []
-        mock_vs.return_value = mock_vs_instance
 
         mock_audit_instance = MagicMock()
         mock_audit_instance.log.return_value = {}
@@ -102,12 +98,15 @@ class TestVerifierLogic:
             source="10-K FY2024, Item 8",
         )
 
+        state["filing_texts"] = [{"source": state["citations"][0]["source"], "text": state["citations"][0]["passage"]}]
         from agents.verifier import verifier_node
         with patch("agents.verifier.settings") as mock_settings:
             mock_settings.audit_log_dir = "/tmp"
             mock_settings.chroma_persist_dir = "/tmp/chroma"
             mock_settings.gemini_api_key = "fake-key"
             mock_settings.verifier_max_retries = 2
+            mock_settings.verification_backend = "rules"
+            mock_settings.verification_remote_budget = 2
 
             result = verifier_node(state)
 
@@ -119,9 +118,8 @@ class TestVerifierLogic:
         assert "$500B" in result["unverified_claims"][0] or "500" in result["unverified_claims"][0]
 
     @patch("agents.verifier.call_llm")
-    @patch("tools.vector_store.VectorStore")
     @patch("agents.verifier.AuditLogger")
-    def test_verifier_passes_supported_claim(self, mock_audit, mock_vs, mock_llm):
+    def test_verifier_passes_supported_claim(self, mock_audit, mock_llm):
         """Verifier must mark a well-supported claim as verified."""
         import json
 
@@ -132,26 +130,26 @@ class TestVerifierLogic:
             "correction": None,
         })
 
-        mock_vs_instance = MagicMock()
-        mock_vs_instance.query.return_value = []
-        mock_vs.return_value = mock_vs_instance
 
         mock_audit_instance = MagicMock()
         mock_audit_instance.log.return_value = {}
         mock_audit.return_value = mock_audit_instance
 
         state = self._make_state(
-            claim="Revenue reached $443 billion in FY2024",
+            claim="Net sales totaled $443.0 billion in fiscal year 2024.",
             passage="Net sales for fiscal year 2024 totaled $443.0 billion, representing growth of 2% year-over-year.",
             source="10-K FY2024",
         )
 
+        state["filing_texts"] = [{"source": state["citations"][0]["source"], "text": state["citations"][0]["passage"]}]
         from agents.verifier import verifier_node
         with patch("agents.verifier.settings") as mock_settings:
             mock_settings.audit_log_dir = "/tmp"
             mock_settings.chroma_persist_dir = "/tmp/chroma"
             mock_settings.gemini_api_key = "fake-key"
             mock_settings.verifier_max_retries = 2
+            mock_settings.verification_backend = "rules"
+            mock_settings.verification_remote_budget = 2
 
             result = verifier_node(state)
 
@@ -161,9 +159,8 @@ class TestVerifierLogic:
         assert len(result["unverified_claims"]) == 0
 
     @patch("agents.verifier.call_llm")
-    @patch("tools.vector_store.VectorStore")
     @patch("agents.verifier.AuditLogger")
-    def test_verifier_sends_feedback_on_first_failure(self, mock_audit, mock_vs, mock_llm):
+    def test_verifier_sends_feedback_on_first_failure(self, mock_audit, mock_llm):
         """
         On first failure (iteration 0), verifier should set feedback for Writer.
         On last iteration, it should mark claims as UNVERIFIED instead.
@@ -176,9 +173,6 @@ class TestVerifierLogic:
             "reasoning": "Claim not supported by passage.",
             "correction": None,
         })
-        mock_vs_instance = MagicMock()
-        mock_vs_instance.query.return_value = []
-        mock_vs.return_value = mock_vs_instance
         mock_audit_instance = MagicMock()
         mock_audit_instance.log.return_value = {}
         mock_audit.return_value = mock_audit_instance
@@ -191,6 +185,8 @@ class TestVerifierLogic:
             mock_settings.chroma_persist_dir = "/tmp/chroma"
             mock_settings.gemini_api_key = "fake-key"
             mock_settings.verifier_max_retries = 2
+            mock_settings.verification_backend = "rules"
+            mock_settings.verification_remote_budget = 2
 
             result = verifier_node(state)
 

@@ -1,14 +1,7 @@
-"""
-Verifier / Critic Agent Node — THE CORE DIFFERENTIATOR of Verity.
+"""Source-anchored BACE verification inside the LangGraph rewrite loop.
 
-For every cited claim in the Writer's report:
-1. Re-retrieve the cited passage from the vector store
-2. Ask the LLM: "Does this passage actually support this claim?"
-3. If NO → send the claim back to Writer with specific feedback (loop, max N retries)
-4. If YES → mark as verified
-5. Any claim still unverified after max retries → explicitly flagged in final report
-
-Optimized to batch verification requests to fit within free-tier rate limits.
+Independent document evidence, optional local NLI, budgeted remote judgments,
+and explicit abstention. The writer's quoted passage is never trusted.
 """
 
 import re
@@ -41,95 +34,47 @@ Rules:
 - confidence = your certainty about your verdict (0.8+ = very sure, below 0.5 = uncertain).
 """
 
-VERIFIER_BATCH_SYSTEM = """
-You are the Verifier agent for Verity, a financial research system.
-Your ONLY job is fact-checking: determining whether given retrieved passages support their corresponding specific claims.
-
-Input will be a list of claims and their corresponding retrieved passages.
-For each claim-passage pair, you must determine:
-1. "supported": true/false
-2. "confidence": 0.0-1.0
-3. "reasoning": "one-sentence explanation"
-4. "correction": "what the claim should say instead, if supported=false (else null)"
-
-Respond with EXACTLY a JSON array of objects matching the input order (no other text). Do not include markdown code block formatting or anything other than the raw JSON array. Example:
-[
-  {
-    "supported": true,
-    "confidence": 0.9,
-    "reasoning": "Passage directly states this metric.",
-    "correction": null
-  }
-]
-"""
-
-
 def verifier_node(state: VerityState) -> VerityState:
     """
     LangGraph node: Verifier/Critic.
-    Checks citations in batches to optimize rate limits.
+    Checks citations through the source-anchored verification cascade.
     """
     start = time.monotonic()
-    ticker = state["ticker"]
     run_id = state["run_id"]
     iteration = state.get("verifier_iteration", 0)
     audit = AuditLogger(settings.audit_log_dir, run_id)
     tool_calls = []
 
-    from tools.vector_store import VectorStore
-    vs = VectorStore(settings.chroma_persist_dir, settings.gemini_api_key)
-    collection_name = state.get("collection_name", "")
-
+    from research.cascade import Cascade, Policy
     citations = state.get("citations", [])
     draft_report = state.get("draft_report", "")
+    scorer = None
+    if settings.verification_backend in {"torch", "onnx"}:
+        try:
+            from research.nli import get_scorer
+            scorer = get_scorer(settings.verification_backend)
+        except Exception as exc:
+            logger.warning("Local verifier unavailable: %s", exc)
+    budget = max(0, settings.verification_remote_budget - state.get("verification_remote_used", 0))
+    outcome = Cascade(
+        Policy(remote_budget=budget), scorer=scorer, remote=_verify_claim,
+    ).verify(citations, state.get("filing_texts", []))
+    retrieved_items = [
+        {"citation": c, "claim": c.get("claim", ""),
+         "passage": v.get("evidence", {}).get("text", ""),
+         "source": v.get("evidence", {}).get("source", c.get("source", ""))}
+        for c, v in zip(citations, outcome["verdicts"])
+    ]
 
-    logger.info(f"[Verifier] Starting iteration {iteration+1}, checking {len(citations)} citations")
-
-    # Step 1: Pre-retrieve best passages from vector store for all citations
-    retrieved_items = []
-    for i, citation in enumerate(citations):
-        claim = citation.get("claim", "")
-        source = citation.get("source", "")
-        cited_passage = citation.get("passage", "")
-
-        best_passage = cited_passage
-        if collection_name and claim:
-            try:
-                retrieved = vs.query(
-                    collection_name,
-                    query_text=claim,
-                    n_results=3,
-                    where=None,
-                )
-                if retrieved:
-                    best_passage = retrieved[0].text
-                    source = retrieved[0].source
-                tool_calls.append({
-                    "tool": "vector_store.query",
-                    "claim_index": i,
-                    "claim": claim[:100],
-                    "retrieved_chunks": len(retrieved),
-                })
-            except Exception as ex:
-                logger.warning(f"Vector search failed for claim verification: {ex}")
-
-        retrieved_items.append({
-            "citation": citation,
-            "claim": claim,
-            "passage": best_passage,
-            "source": source
-        })
-
-    # Step 2: Batch the verifications to save LLM calls
+    # Preserve citation order while assembling the cascade judgments.
+    ordered_citations = []
     verified_citations = []
     failed_citations = []
     unverified_claims = []
 
-    batch_size = 5
-    for b_idx in range(0, len(retrieved_items), batch_size):
-        batch = retrieved_items[b_idx:b_idx+batch_size]
-        logger.info(f"[Verifier] Verifying batch of {len(batch)} claims...")
-        verdicts = _verify_claims_batch(batch)
+    for b_idx in range(0, len(retrieved_items), 5):
+        batch = retrieved_items[b_idx:b_idx+5]
+        verdicts = outcome["verdicts"][b_idx:b_idx+5]
 
         for item, verdict in zip(batch, verdicts):
             citation = item["citation"]
@@ -140,12 +85,15 @@ def verifier_node(state: VerityState) -> VerityState:
             updated_citation = {
                 **citation,
                 "verified": verdict.get("supported", False),
+                "verification_route": verdict.get("route"),
+                "evidence": verdict.get("evidence"),
                 "confidence": verdict.get("confidence", 0.0),
                 "verifier_reasoning": verdict.get("reasoning", ""),
                 "verifier_correction": verdict.get("correction"),
                 "retrieved_passage": best_passage[:300],
             }
 
+            ordered_citations.append(updated_citation)
             if verdict.get("supported"):
                 verified_citations.append(updated_citation)
             else:
@@ -162,7 +110,7 @@ def verifier_node(state: VerityState) -> VerityState:
                 unverified_claims.append(feedback_item)
 
             tool_calls.append({
-                "tool": "llm.verify_claim_batched",
+                "tool": "cascade.verify_claim",
                 "claim": claim[:100],
                 "verdict": verdict,
             })
@@ -179,7 +127,7 @@ def verifier_node(state: VerityState) -> VerityState:
         f"{failed_count} failed"
     )
 
-    all_citations = verified_citations + failed_citations
+    all_citations = ordered_citations
     verifier_feedback = ""
 
     if failed_citations and iteration < settings.verifier_max_retries - 1:
@@ -200,6 +148,7 @@ def verifier_node(state: VerityState) -> VerityState:
             "failed": failed_count,
             "citation_coverage_pct": round(citation_coverage, 1),
             "send_back_to_writer": bool(verifier_feedback),
+            "cascade": outcome["metrics"],
         },
         tool_calls=tool_calls,
         duration_seconds=duration,
@@ -209,6 +158,8 @@ def verifier_node(state: VerityState) -> VerityState:
         **state,
         "citations": all_citations,
         "draft_report": draft_report,
+        "verification_remote_used": state.get("verification_remote_used", 0) + outcome["metrics"]["remote_attempts"],
+        "verification_metrics": outcome["metrics"],
         "verifier_iteration": iteration + 1,
         "verifier_feedback": verifier_feedback,
         "unverified_claims": unverified_claims,
@@ -252,43 +203,6 @@ Does this passage support the claim above?
         }
 
 
-def _verify_claims_batch(batch: list[dict]) -> list[dict]:
-    """
-    Verify a batch of claim-passage pairs in a single LLM call.
-    """
-    if not batch:
-        return []
-
-    prompt = "Verify the following claim-passage pairs:\n\n"
-    for idx, item in enumerate(batch):
-        prompt += f"=== Pair {idx+1} ===\n"
-        prompt += f"Claim: \"{item['claim']}\"\n"
-        prompt += f"Retrieved passage (from source: {item['source']}):\n"
-        prompt += f"{item['passage'][:1000]}\n"
-        prompt += "====================\n\n"
-
-    import json as _json
-
-    try:
-        raw = call_llm(prompt, system_instruction=VERIFIER_BATCH_SYSTEM)
-        raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
-        verdicts = _json.loads(raw)
-
-        if isinstance(verdicts, list) and len(verdicts) == len(batch):
-            for v in verdicts:
-                if "supported" not in v:
-                    v["supported"] = False
-            return verdicts
-    except Exception as e:
-        logger.warning(f"[Verifier] Batch LLM verification failed: {e}. Falling back to individual verification...")
-
-    # Fallback to individual verification if batch parsing fails
-    verdicts = []
-    for item in batch:
-        verdicts.append(_verify_claim(item['claim'], item['passage'], item['source']))
-    return verdicts
-
-
 def _build_feedback(failed: list[dict], issues: list[str]) -> str:
     """Build structured feedback for the Writer agent."""
     lines = [
@@ -305,14 +219,14 @@ def _mark_unverified_in_report(report: str, failed: list[dict]) -> str:
     """
     After max retries, mark remaining unverified citations in the report text.
     """
-    # Blanket pass: any remaining [[CITE]] after max retries gets annotated
-    report = re.sub(
-        r'\[\[CITE:(.*?)\]\]',
-        lambda m: f'[CITED: {m.group(1).split("|")[0].strip()}]',
-        report,
-        flags=re.DOTALL,
-    )
-    return report
+    failed_keys = {(c.get("source", "").strip(), c.get("passage", "").strip()) for c in failed}
+    def annotate(match):
+        source, _, passage = match.group(1).partition("|")
+        if (source.strip(), passage.strip()) in failed_keys:
+            return "[UNVERIFIED] " + match.group(0)
+        return match.group(0)
+    return re.sub(r'\[\[CITE:(.*?)\]\]', annotate, report, flags=re.DOTALL)
+
 
 
 def should_loop_to_writer(state: VerityState) -> str:

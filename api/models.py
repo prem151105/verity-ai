@@ -50,3 +50,18 @@ class TraceEntry(BaseModel):
     inputs: dict
     outputs: dict
     tool_calls: list[dict]
+
+
+class EvidenceDocument(BaseModel):
+    source: str = Field(min_length=1, max_length=200)
+    text: str = Field(min_length=1, max_length=50000)
+
+
+class EvidenceClaim(BaseModel):
+    claim: str = Field(min_length=1, max_length=1000)
+    source: str = Field(min_length=1, max_length=200)
+
+
+class VerificationRequest(BaseModel):
+    documents: list[EvidenceDocument] = Field(min_length=1, max_length=20)
+    claims: list[EvidenceClaim] = Field(min_length=1, max_length=100)
