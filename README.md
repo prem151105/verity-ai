@@ -1,153 +1,34 @@
-<p align="center">
-  <img src="assets/readme/verity-overview.svg" alt="Verity: source documents become cited research with an inspectable evidence trail and review flags" width="100%">
-</p>
+# Verity
 
-<h1 align="center">Verity</h1>
-<p align="center"><strong>Financial research you can trace back to the evidence.</strong></p>
-<p align="center">
-  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python 3.10 or newer"></a>
-  <a href="https://github.com/langchain-ai/langgraph"><img src="https://img.shields.io/badge/Workflow-LangGraph-167D8D" alt="LangGraph workflow"></a>
-  <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white" alt="FastAPI"></a>
-  <a href="https://www.sbert.net/"><img src="https://img.shields.io/badge/Local_ML-DeBERTa_NLI-7357C8" alt="Optional local DeBERTa inference"></a>
-</p>
-<p align="center">
-  <a href="#what-verity-does">Overview</a> ·
-  <a href="#see-the-difference">Example</a> ·
-  <a href="#how-it-works">Architecture</a> ·
-  <a href="#quick-start">Quick start</a> ·
-  <a href="#research-and-validation">Research</a>
-</p>
+Financial research from SEC filings, with a second pass over the evidence.
 
----
+[Getting started](#getting-started) · [How it works](#how-it-works) · [Verification](#verification) · [Development](#development)
 
-## What Verity does
+A citation can look convincing and still point to the wrong evidence. Verity is built around checking that gap: it takes a stock ticker, gathers company filings and market data, calculates financial ratios, and writes a report. A separate verifier checks the cited statements against the retrieved documents and sends problems back for revision.
 
-**Enter a stock ticker. Get a cited research report with an evidence trail and visible review flags.**
-
-Verity retrieves company filings and market data, calculates financial ratios in Python, drafts a report, and checks cited statements against independently retrieved documents. When evidence is missing or a check remains uncertain, the statement stays unverified.
-
-For a reviewer, this means less time hunting for source passages. For an ML researcher, it provides a small, inspectable system for studying retrieval, local inference, selective computation, and abstention.
-
-| You need… | Verity provides… |
-|---|---|
-| Traceable research | Named sources, retrieved passages, and evidence identifiers |
-| Reproducible calculations | Financial ratios computed from structured data |
-| Efficient verification | Local matching, batched optional NLI, and limited remote escalation |
-| Visible uncertainty | Explicit review flags when evidence or judgments are insufficient |
-
-## See the difference
-
-![A fictional source supports a copied revenue sentence, while a changed number and a growth guarantee need review](assets/readme/evidence-example.svg)
-
-The illustration uses the implemented **rules-only** path. A complete sentence match can skip model inference. A changed number triggers the numeric guard. A statement that requires interpreting negation remains unverified until a model or reviewer checks it.
-
-Try the same example locally—no API key or model download required:
-
-```python
-from research.cascade import Cascade
-
-source = "ExampleCo filing"
-documents = [{"source": source, "text":
-    "Revenue was $120 million. The company does not guarantee growth."}]
-claims = [{"source": source, "claim": text} for text in [
-    "Revenue was $120 million.",
-    "Revenue was $900 million.",
-    "The company guarantees growth.",
-]]
-
-result = Cascade().verify(claims, documents)
-for claim, verdict in zip(claims, result["verdicts"]):
-    print(verdict["decision"], "—", claim["claim"])
-print("Cloud judgments:", result["metrics"]["remote_attempts"])
-```
-
-```text
-supported — Revenue was $120 million.
-abstain — Revenue was $900 million.
-abstain — The company guarantees growth.
-Cloud judgments: 0
-```
+The report includes its citations and flags anything the verifier could not support. You can run the full research app or use the verification engine on documents you already have.
 
 ## How it works
 
-### From ticker to reviewed report
+![Animated workflow from Planner to Retriever, Analyst, Writer, Verifier, and Assembler, with a correction loop between Verifier and Writer](assets/readme/agent-workflow.gif)
 
-```mermaid
-flowchart LR
-    P["1 · Plan research"] --> R["2 · Retrieve filings<br/>and market data"]
-    R --> A["3 · Calculate ratios<br/>in Python"]
-    A --> W["4 · Write cited report"]
-    W --> V{"5 · Check evidence"}
-    V -->|"Issues and retries available"| W
-    V -->|"Checks complete or retry limit reached"| F["6 · Assemble report<br/>with review flags"]
-    classDef step fill:#edf4ff,stroke:#567ba8,color:#172c46;
-    classDef check fill:#e1f5ee,stroke:#22836a,color:#124a3d;
-    class P,R,A,W,F step;
-    class V check;
-```
+*The animation shows execution order and one possible rewrite, not a live run. [Still version](assets/readme/agent-workflow.svg).*
 
-LangGraph makes the workflow and correction loop explicit. The verifier retrieves from the actual source documents; the writer's quoted passage cannot verify itself.
+The six nodes share state through LangGraph:
 
-### BACE: spend verification effort selectively
+- **Planner → Retriever:** resolve the company, prepare research tasks, then fetch SEC filings, XBRL facts, and market data. The original documents are retained alongside the retrieval index.
+- **Analyst → Writer:** calculate ratios in Python, interpret the results, and draft a report with structured citations. Arithmetic stays in code.
+- **Verifier → Assembler:** retrieve evidence within the cited source, judge the claims, and return feedback while retries remain. Assemble the final report with its citation index and unresolved flags.
 
-**Budgeted, Anchored Claim Evaluation (BACE)** is Verity's proposed routing algorithm. It combines established retrieval and inference techniques into a source-aware verification policy.
+The verifier never uses the writer's quoted passage as independent evidence. Its input is the source text retained during retrieval. See [the graph](agents/graph.py) and [verifier integration](agents/verifier.py).
 
-<details>
-<summary><strong>Explore the full verification decision tree</strong></summary>
+## Getting started
 
-```mermaid
-flowchart TD
-    C["Claim + named source"] --> R["BM25: retrieve within that source"]
-    R --> E{"Evidence found?"}
-    E -->|No| U["Abstain · needs review"]
-    E -->|Yes| X{"Complete sentence match?"}
-    X -->|Yes| S["Source-aligned"]
-    X -->|No| N{"Numeric strings supported?"}
-    N -->|No| U
-    N -->|Yes| M["Optional local NLI<br/>batched passage / claim pairs"]
-    M --> T{"Strong non-neutral judgment?"}
-    T -->|Yes| D["Supported or contradicted"]
-    T -->|"No or model unavailable"| B{"Remote budget available?"}
-    B -->|No| U
-    B -->|Yes| L["Attempt remote judgment"]
-    L --> Q{"Valid and sufficiently confident?"}
-    Q -->|No| U
-    Q -->|Yes| O["Supported or unsupported"]
-    classDef local fill:#e9f2ff,stroke:#6485b5,color:#172c46;
-    classDef aligned fill:#e1f5ee,stroke:#22836a,color:#124a3d;
-    classDef review fill:#fff3d6,stroke:#b78924,color:#654b12;
-    class R,M local;
-    class S,D,O aligned;
-    class U review;
-```
-
-</details>
-
-
-| Stage | What it does | Why it matters |
-|---|---|---|
-| Source anchoring | Searches only the cited source | Prevents unrelated documents from backing a claim |
-| Exact matching | Accepts complete normalized sentence matches | Avoids unnecessary inference for copied statements |
-| Numeric guard | Flags numeric strings absent from the selected passage | Blocks automatic support when numbers do not align |
-| Local NLI | Uses a pretrained DeBERTa cross-encoder in batches of 16 | Adds semantic judgments on the local machine |
-| Budgeted escalation | Prioritizes uncertain cases for limited remote judgments | Makes the remote-work/review tradeoff explicit |
-| Output validation | Rejects malformed or uncertain model responses | Keeps failed checks from becoming supported claims |
-
-The remote budget persists across report rewrites. Duplicate claims share judgments within an invocation. Evidence hashes and audit logs make routes inspectable.
-
-**Default model policy:** score ≥ `0.95` and margin ≥ `0.20` for local decisions. These are uncalibrated routing thresholds, not factual reliability guarantees.
-
-## Quick start
-
-### 1. Install
-
-Use Python 3.10+ and run commands from the repository root:
+Python 3.10+ is required. From the repository root, create and activate a virtual environment:
 
 ```bash
 python -m venv .venv
 ```
-
-Activate the environment:
 
 ```powershell
 # Windows PowerShell
@@ -159,82 +40,94 @@ Activate the environment:
 source .venv/bin/activate
 ```
 
+Install the application dependencies:
+
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Configure
-
-Copy [.env.example](.env.example) to `.env`. Set your `GEMINI_API_KEY` and a descriptive `SEC_USER_AGENT` with your contact email.
+Copy [.env.example](.env.example) to `.env` and set your Gemini key and SEC contact identity:
 
 ```dotenv
 GEMINI_API_KEY=your_key_here
 SEC_USER_AGENT=YourName/1.0 contact@example.com
-VERIFICATION_BACKEND=rules
-VERIFICATION_REMOTE_BUDGET=2
 ```
 
-### 3. Start the application
+Start the API, then the dashboard in a second terminal:
 
 ```bash
 uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-In a second terminal:
-
 ```bash
 streamlit run ui/app.py
 ```
 
-Open the [research dashboard](http://localhost:8501) and enter a ticker such as `AAPL`. Explore endpoints in the [API documentation](http://localhost:8000/docs).
+Open [localhost:8501](http://localhost:8501), enter a ticker such as `AAPL`, and start the research run. The full workflow needs network access and uses Gemini for generation and embeddings.
 
-### Optional: enable local neural inference
+## Verification
+
+The verification engine can also run by itself. This example uses only local rules and the Python standard library:
+
+```python
+from research.cascade import Cascade
+
+result = Cascade().verify(
+    claims=[{"source": "example", "claim": "Revenue was $900 million."}],
+    documents=[{"source": "example", "text": "Revenue was $120 million."}],
+)
+
+verdict = result["verdicts"][0]
+print(verdict["decision"], verdict["route"])
+# abstain numeric_guard
+```
+
+Here, `abstain` means the claim needs review. No cloud call is made. The returned verdict also includes the retrieved evidence and the reason for the decision.
+
+### Where the model fits
+
+The routing policy is called **BACE**—Budgeted, Anchored Claim Evaluation. It follows a short sequence:
+
+1. Retrieve sentences with BM25, restricted to the named source.
+2. Accept complete sentence matches. Flag missing evidence and numeric mismatches for review.
+3. If enabled, run a local DeBERTa NLI model on the remaining passage–claim pairs.
+4. Send uncertain cases for remote judgment until the verification budget is spent; leave the rest unverified.
+
+Identical claims share a judgment within a verification pass. The remote budget carries across report rewrites. Malformed or uncertain model responses cannot mark a claim as supported.
+
+Configure the full workflow in `.env`:
+
+```dotenv
+VERIFICATION_BACKEND=rules
+VERIFICATION_REMOTE_BUDGET=2
+```
+
+For local neural inference, install the optional dependencies and change the backend:
 
 ```bash
 pip install -r requirements-local.txt
 ```
 
-Set `VERIFICATION_BACKEND=torch` or `VERIFICATION_BACKEND=onnx`. The adapter loads `cross-encoder/nli-deberta-v3-small` at a pinned revision. First use downloads weights; ONNX may also export model artifacts.
+Set `VERIFICATION_BACKEND=torch` or `onnx`. The adapter uses a pinned revision of [DeBERTa NLI](https://huggingface.co/cross-encoder/nli-deberta-v3-small), with batches of 16. First use downloads the model; ONNX may export artifacts. Local decisions require a score of at least 0.95 and a margin of 0.20. Those thresholds still need financial-domain calibration.
 
-| Mode | Local verification | Remote verification |
-|---|---|---|
-| Standalone `Cascade()` / `POST /verify` | Rules only | Disabled |
-| Full research, `rules` | Matching and numeric guards | Up to the configured budget |
-| Full research, `torch` or `onnx` | Rules + batched local NLI | Uncertain cases within budget |
+Setting the remote budget to `0` disables cloud verification. It does not disable the generation and embedding calls used elsewhere in the research workflow. The budget counts logical claim judgments, not retries, tokens, or dollars.
 
-Set `VERIFICATION_REMOTE_BUDGET=0` to disable remote **verification**. The full research workflow still uses Gemini generation and Chroma embeddings.
+## API
 
-## API at a glance
+Interactive documentation is at [localhost:8000/docs](http://localhost:8000/docs).
 
-| Endpoint | Purpose |
+| Request | Result |
 |---|---|
-| `POST /research/{ticker}` | Start a research job and receive a run ID |
-| `GET /research/{run_id}` | Retrieve the report after the job completes |
-| `POST /verify` | Check supplied claims against supplied documents locally |
-| `GET /health` | Inspect service health |
+| `POST /research/{ticker}` | Starts research and returns a run ID |
+| `GET /research/{run_id}` | Returns the report when ready |
+| `POST /verify` | Checks supplied claims against supplied documents using local rules |
+| `GET /health` | Reports service health |
 
-Example `/verify` request body:
+`POST /verify` accepts `claims` and `documents` in the same shape as the Python example above. It returns verdicts, evidence, and execution metrics with no cloud calls.
 
-```json
-{
-  "documents": [{"source": "ExampleCo filing", "text": "Revenue was $120 million."}],
-  "claims": [{"source": "ExampleCo filing", "claim": "Revenue was $900 million."}]
-}
-```
+## Development
 
-The result contains verdicts, evidence, reasons, routes, and metrics. This claim receives `decision: "abstain"` with `route: "numeric_guard"`. The endpoint checks alignment with caller-supplied documents; it does not authenticate them.
-
-## Research and validation
-
-The core contribution is the **verification system and routing policy** around a pretrained model. The project does not establish a new foundation model or academic novelty.
-
-| Evidence available | Status |
-|---|---|
-| Core correctness and failure handling | 35 tests passed during the implementation check |
-| Rules-only example above | Reproducible without external services |
-| Neural financial-domain accuracy | Requires human-labeled evaluation and calibration |
-| Torch vs ONNX latency | Requires measurement on target hardware |
-| Full-pipeline cloud savings | Requires token, retry, and pricing measurements |
+The implementation is small enough to read end to end. Start with [research/cascade.py](research/cascade.py) for routing, [research/evidence.py](research/evidence.py) for retrieval, and [research/nli.py](research/nli.py) for the optional model adapter. The [agents](agents/) directory connects these to report generation; [tools](tools/) contains data access and financial calculations.
 
 Run the tests:
 
@@ -243,42 +136,18 @@ pip install pytest requests responses pydantic pydantic-settings fastapi httpx
 python -m pytest -q
 ```
 
-Coverage includes fabricated sources, numeric errors, negation, duplicate claims, changed evidence, malformed model outputs, exhausted budgets, API validation, and financial calculations.
+They cover source attribution, numeric mismatches, negation, duplicate claims, changed evidence, malformed responses, exhausted budgets, API validation, and financial calculations. The existing live evaluation runs with `python -m eval.eval` and uses network/model services.
 
-The existing live evaluation is available with `python -m eval.eval`; it uses network/model services. Its model-judge scores are not ground-truth factual accuracy.
+BACE is a project-specific combination of established methods. The research question is whether local checks and selective escalation can reduce remote work without accepting more unsupported claims. Answering it needs human-labeled financial examples, held-out companies, threshold calibration, and cost/latency measurements. Neural accuracy, ONNX speedups, and full-pipeline savings have not been established here.
 
-For the next research experiment, use human-labeled financial claims split by company and filing date. Calibrate thresholds on a separate split, then compare rules-only, local NLI, remote-only, and budgeted routing. Report support precision, recall, abstention rate, decision coverage, latency, and cost together.
+## Known limitations
 
-## Project map
+Source agreement does not establish truth. Exact source names are required, and tables, unit conversions, derived ratios, and claims spanning several sentences can lead to abstention. The NLI adapter may truncate long inputs at 512 tokens. Uncited factual claims are not comprehensively detected.
 
-```text
-verity-ai/
-├── research/          # Evidence retrieval, BACE policy, local NLI adapter
-├── agents/            # LangGraph research and correction workflow
-├── tools/             # SEC, market data, vector storage, financial calculations
-├── api/               # Research service and local verification endpoint
-├── ui/app.py          # Streamlit research dashboard
-├── tests/             # Core behavior and failure handling
-├── eval/eval.py       # Live research evaluation
-├── assets/readme/     # The two illustrations used in this README
-├── config.py          # Environment-based settings
-└── requirements*.txt # Application and optional local ML dependencies
-```
+The app is a research prototype: jobs use in-memory state, and the API has no authentication or distributed queue. Review reports before using their financial conclusions.
 
-## Boundaries to understand
+## References
 
-- **Source alignment is not truth.** A matching source can itself be wrong or lack context.
-- **Abstention is a useful outcome.** Tables, numeric format changes, derived ratios, and cross-sentence reasoning can require review. Source names must match exactly.
-- **Model scores need calibration.** The NLI model was trained on general-domain data; long inputs may be truncated at 512 tokens.
-- **The budget covers logical judgments.** Transport retries, generation calls, tokens, dollars, and total runtime are separate.
-- **This is a research prototype.** The API uses in-memory job state and lacks authentication and a distributed queue. The verifier does not detect every uncited factual statement.
-
-## Research foundations
-
-| Source | Role in Verity |
-|---|---|
-| [FrugalGPT](https://arxiv.org/abs/2305.05176) | Motivation for cost-aware model cascades; Verity uses a fixed heuristic policy |
-| [Sentence Transformers inference backends](https://www.sbert.net/docs/cross_encoder/usage/efficiency.html) | Torch and ONNX execution options |
-| [DeBERTa NLI model card](https://huggingface.co/cross-encoder/nli-deberta-v3-small) | Pretrained model provenance and class ordering |
-
-Published results from these sources are not Verity's measured results.
+- [FrugalGPT](https://arxiv.org/abs/2305.05176) — cost-aware model cascades; inspiration for the routing approach.
+- [Sentence Transformers inference backends](https://www.sbert.net/docs/cross_encoder/usage/efficiency.html) — the local Torch and ONNX execution options.
+- [DeBERTa NLI model card](https://huggingface.co/cross-encoder/nli-deberta-v3-small) — training data and label ordering for the pretrained model.
