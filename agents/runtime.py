@@ -1,6 +1,6 @@
 """Bounded agent handoffs: explicit roles, external feedback, observable termination.
 
-Paper-inspired engineering, not a reproduction of MetaGPT, Reflexion, or MAST.
+Runs the research steps in order and records their progress.
 """
 from copy import deepcopy
 from datetime import datetime, timezone

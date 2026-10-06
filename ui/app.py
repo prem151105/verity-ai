@@ -55,7 +55,7 @@ with st.sidebar:
     running = st.session_state.status in ('running','cancelling')
     launch = st.button('Begin research ↗', type='primary', use_container_width=True, disabled=running)
     demo = st.button('Explore a sample run', use_container_width=True, disabled=running)
-    st.caption('No key needed. Synthetic company, real local evidence checks.')
+    st.caption('Try a fictional company without an API key. The source checks run locally.')
     if health:
         st.caption('● Research service connected' + ('' if health.get('model_configured') else ' · model key needed'))
         st.caption('Document search: ' + ('local BM25' if health.get('retrieval_backend') == 'bm25' else 'Gemini embeddings'))
@@ -63,7 +63,7 @@ with st.sidebar:
     else:
         st.caption('○ Research service offline · sample available')
     st.divider()
-    st.markdown('**The research contract**')
+    st.markdown('**What we check**')
     st.caption('01  Source every cited claim\n\n02  Challenge assumptions\n\n03  Keep uncertainty visible')
     with st.expander('Recent research runs'):
         if health:
@@ -81,9 +81,9 @@ with st.sidebar:
 st.markdown('<div class="brand"><strong>◈ VERITY</strong><span>FINANCIAL RESEARCH / OPEN TO SCRUTINY</span></div>', unsafe_allow_html=True)
 a,b = st.columns([3,1])
 with a:
-    st.markdown('<div class="eyebrow">AN OBSERVATORY FOR EVIDENCE</div><div class="hero">Follow the evidence.<br><em>Question the conclusion.</em></div><div class="subtitle">A team of specialized agents turns company filings into research you can inspect. Watch the handoffs, challenge the assumptions, and trace cited claims back to their sources.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="eyebrow">TAKE A CLOSER LOOK AT A COMPANY</div><div class="hero">Follow the evidence.<br><em>Question the conclusion.</em></div><div class="subtitle">Enter a company ticker to explore its filings, financials, and market data. Follow the research as it happens, read the sources, and see which claims need another look.</div>', unsafe_allow_html=True)
 with b:
-    st.markdown('<div class="note">EIGHT SPECIALIZED ROLES<br>One visible research process.<br><br>From the first question to the final citation, uncertainty stays in view.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="note">FOLLOW EACH STEP<br>From company filings to your report.<br><br>See what the sources support and what still needs checking.</div>', unsafe_allow_html=True)
 
 if launch:
     try:
@@ -191,7 +191,7 @@ if result:
 
 st.markdown('#### 02 / Evidence lab')
 with st.expander('Put a claim under the microscope', expanded=not bool(result)):
-    st.caption('A local check against your supplied text. No model key, no cloud calls.')
+    st.caption('Paste a source passage and a claim to compare them. This check runs locally without an API key.')
     l,r = st.columns(2)
     with l:
         source_text = st.text_area('Source passage', 'Revenue was $120 million. Operating income was $24 million.', max_chars=50000)

@@ -4,19 +4,19 @@
 
 ### Follow the evidence. Question the conclusion.
 
-An open financial research observatory: eight specialized roles, independent claim checks, and a research process you can inspect.
+A financial research app that helps you understand a company and check the sources behind its report.
 
-[Explore the demo](#try-it) · [The research process](#the-research-process) · [50-paper research ledger](docs/research-ledger.md) · [API](#api) · [Development](#development)
+[Try it](#try-it) · [How it works](#the-research-process) · [API](#api) · [Development](#development)
 
 </div>
 
 ---
 
-A polished report can hide a weak argument. A citation can point to a document that never supported the claim. Verity makes that gap visible.
+Verity brings company filings, market data, and source checks into one workspace.
 
-Give it a company ticker. The system retrieves SEC filings and market context, computes financial ratios, challenges the analysis, and drafts a cited research note. An independent verification pass checks cited claims against the original retrieved text. A bounded review loop requests corrections and keeps unresolved claims visible.
+Enter a company ticker to get a research note with financial ratios and citations. Verity gathers the data, reviews the analysis, and checks cited claims against the source text. When a claim needs a correction, it asks for a revision. Anything still unresolved stays flagged for you to review.
 
-**You get the research note and the record behind it:** agent handoffs, source excerpts, verification routes, skeptical observations, and downloadable results.
+You can follow each step, read the source excerpts, see what needs another look, and download the results.
 
 ![Verity research observatory: live event log and eight-role agent map](assets/readme/observatory.png)
 
@@ -24,9 +24,9 @@ Give it a company ticker. The system retrieves SEC filings and market context, c
 
 ![Synthetic ExampleCo session: a numeric mismatch triggers revision before the corrected claim is checked](assets/readme/research-session.gif)
 
-*An actual execution of the offline synthetic case, rendered through the same observatory component as the app. Planning, retrieval, analysis, skepticism, and writing use fixtures; the local verification cascade actually executes. This is not live market research or a financial-accuracy benchmark.*
+*This sample uses a fictional company and prepared data. The source checker runs locally, so you can try it without an API key. It demonstrates the workflow rather than live company research.*
 
-The example intentionally starts with a $900 million revenue claim against a source stating $120 million. The verifier flags the mismatch, the adjudicator requests revision, and the corrected exact statement passes the next check. The original [workflow animation](assets/readme/agent-workflow.gif) is retained as a historical six-stage illustration.
+The sample report says revenue was $900 million, but the source says $120 million. Verity catches the mismatch, asks for a correction, and checks the updated claim again.
 
 A complete live NVIDIA run has also been checked with Gemini, SEC filings, and yfinance. See the [live validation record](docs/live-validation.md) and [saved report](reports/NVDA_live_research.md), including its unresolved verification flags.
 
@@ -34,13 +34,13 @@ A complete live NVIDIA run has also been checked with Gemini, SEC filings, and y
 
 | Feature | What it gives you |
 |---|---|
-| Research observatory | A session log beside an agent map, driven by actual started/completed/failed events |
-| Evidence ledger | Filter supported claims and claims needing review; inspect independent excerpts and verification routes |
-| Skeptical review | A dedicated pass to surface assumptions, missing evidence, and possible counter-evidence before writing |
-| Bounded revision | A deterministic adjudicator stops unchanged drafts and enforces the review limit |
+| Research progress | Follow each step in the activity log and workflow map |
+| Source checks | See which claims match their sources and which need review |
+| Second look | Review assumptions, gaps, and evidence that could change the analysis |
+| Report corrections | Revise claims when the checker finds a concrete error, within a set review limit |
 | Evidence lab | Paste a claim and source passage for local, key-free checking |
-| Run history | SQLite snapshots retain results and agent checkpoints across API restarts |
-| Stop control | Request cancellation at the next agent boundary |
+| Run history | Revisit saved results after restarting the API |
+| Stop control | Stop a run when its current step finishes |
 | Exports | Download the research note as Markdown and the run record as JSON |
 | Offline sample | Explore the interface without keys or external data services |
 
@@ -118,19 +118,17 @@ flowchart LR
 | Adjudicator | Decide whether to revise or stop; never convert an unsupported claim into a supported one |
 | Assembler | Package the report, citations, and unresolved flags |
 
-These are **eight workflow roles**, not eight independent models. Several roles combine model calls with deterministic tools; adjudication and assembly are ordinary Python. The workflow is intentionally ordered, not a parallel debate swarm.
+The eight roles run in order. Some use Gemini, while others use Python to calculate values, decide whether another review is needed, or package the report.
 
-### A small, project-owned runtime
+### Running the workflow
 
-Verity now uses [its own Python orchestrator](agents/runtime.py), replacing LangChain/LangGraph dependencies. Nodes exchange explicit state, the runtime emits event envelopes, and the API saves checkpoints under one run ID. The compatibility functions `build_graph()`, `.invoke()`, and `.stream()` remain available.
+The [Python runtime](agents/runtime.py) passes results from one step to the next and records progress as it happens. The API saves those updates under the same run ID. Developers can use `build_graph()`, `.invoke()`, and `.stream()` to run the workflow.
 
-This choice keeps the workflow easy to inspect. It also means distributed scheduling, automatic checkpoint resume, and framework-level durable execution are not supplied. A restarted service marks unfinished runs **interrupted** and preserves their last checkpoint for inspection.
-
-The design draws on role contracts from [MetaGPT](https://arxiv.org/abs/2308.00352), feedback loops from [Reflexion](https://arxiv.org/abs/2303.11366), verification separation from [Chain-of-Verification](https://arxiv.org/abs/2309.11495), and failure analysis from [MAST](https://arxiv.org/abs/2503.13657). The [research ledger](docs/research-ledger.md) records 50 paper scans, six primary technical/design sources, adopted ideas, deferred alternatives, and an evaluation plan. This is a project-specific synthesis, not a reproduction or a claim of validated algorithmic novelty.
+If the service restarts during a run, that run is marked **interrupted**. Its saved progress remains available, but it does not resume automatically.
 
 ## How verification works
 
-The existing **BACE — Budgeted, Anchored Claim Evaluation** cascade remains the evidence gate:
+Each cited claim goes through a series of source checks:
 
 1. Retrieve source-scoped sentences with BM25.
 2. Accept complete exact matches and narrowly defined financial field observations. Compare rounded values at their displayed precision, preserving percent units, field identity, issuer identity, and polarity. Flag genuine numeric mismatches.
@@ -184,7 +182,7 @@ research/     Source-scoped retrieval and verification cascade
 api/          Live events, background jobs, SQLite run snapshots
 ui/           Streamlit observatory and shared diagram renderer
 tools/        SEC / market access, computation, vector storage
-docs/         Research ledger and evaluation direction
+docs/         Live validation notes
 ```
 
 Recreate the screenshots and GIF with a running dashboard:
@@ -195,12 +193,10 @@ playwright install chromium
 python tools/capture_observatory.py
 ```
 
-The older `python -m eval.eval` evaluation uses live network/model services. For a meaningful comparison of the new skeptical workflow, use held-out companies and periods, human-labeled claims, fixed model/data conditions, and measured latency, tokens, cost, false acceptance, and abstention. See the ledger for the proposed ablations.
+`python -m eval.eval` uses live data and model services. To evaluate report quality, compare claims against a manually reviewed set of company filings and track errors, unresolved claims, runtime, and cost.
 
-## Boundaries worth understanding
+## Limitations
 
 Source agreement does not establish truth. Verification checks extracted citations; uncited factual claims are not comprehensively detected. Exact source naming, tables, derived metrics, complex unit conversions, multi-sentence claims, and context truncation remain limitations. The skeptical review is model-generated commentary, not independently verified evidence.
 
 This is a local research prototype. The API has no authentication or distributed queue and allows at most two concurrent runs per process. Keep it on a trusted local interface. Cancellation waits for an active agent to finish; checkpoints do not provide automatic resume. The new orchestration has not established better investment accuracy, reduced hallucinations, or lower provider cost on a live financial benchmark.
-
-The interface takes inspiration from the user-provided [physics-intern Space](https://huggingface.co/spaces/huggingface/physics-intern): a readable session log alongside a visible agent network. Verity's layout, implementation, and financial workflow are its own.

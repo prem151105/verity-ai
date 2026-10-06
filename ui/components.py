@@ -35,8 +35,8 @@ def observatory(events=None, demo=False):
         desc = e.get('detail') or e['kind']
         rows += f'<div class="log-row"><span class="seq">{e["sequence"]:02}</span><b style="color:{color}">{escape(e["node"])}</b><span>{escape(desc)}</span></div>'
     if not rows:
-        rows = '<div class="empty"><span class="cross">+</span><h3>A question starts the journey.</h3><p>Launch a research run or explore the synthetic case.<br>Agent handoffs will appear here as they happen.</p></div>'
-    mode = 'SYNTHETIC DEMO · SCRIPTED ROLES / REAL LOCAL CHECKS' if demo else 'RESEARCH SESSION · OBSERVED AGENT EVENTS'
+        rows = '<div class="empty"><span class="cross">+</span><h3>Ready when you are.</h3><p>Enter a company ticker or try the sample run.<br>You can follow each research step here.</p></div>'
+    mode = 'SAMPLE RUN · FICTIONAL COMPANY / LOCAL SOURCE CHECKS' if demo else 'RESEARCH SESSION · LIVE PROGRESS'
     return f'''<!doctype html><html><head><style>
     *{{box-sizing:border-box}}body{{margin:0;background:#101515;color:#e3e9e4;font:13px system-ui,sans-serif}}
     .shell{{border:1px solid #303b37;border-radius:14px;overflow:hidden;background:linear-gradient(115deg,#141c19,#101515)}}
