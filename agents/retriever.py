@@ -3,7 +3,7 @@ Retriever Agent Node
 - Fetches SEC 10-K and 10-Q filings
 - Fetches market data via yfinance
 - Optionally fetches news
-- Chunks + embeds documents into ChromaDB
+- Indexes documents in local BM25 or optional Gemini-backed Chroma
 - Tags each chunk with source metadata for citations
 """
 
@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 
 def retriever_node(state: VerityState) -> VerityState:
     """
-    LangGraph node: Retriever.
-    Pulls all data sources and populates the ChromaDB vector store.
+    Verity runtime node: Retriever.
+    Pulls data sources and populates the configured passage store.
     """
     start = time.monotonic()
     ticker = state["ticker"]
@@ -41,7 +41,7 @@ def retriever_node(state: VerityState) -> VerityState:
     filing_texts = []
 
     try:
-        filings = edgar.get_recent_filings(ticker, form_types=["10-K", "10-Q"], limit=2)
+        filings = edgar.get_recent_filings(ticker, form_types=["10-K", "10-Q"], limit=1)
         tool_calls.append({
             "tool": "edgar.get_recent_filings",
             "ticker": ticker,
@@ -55,6 +55,7 @@ def retriever_node(state: VerityState) -> VerityState:
                 "filed_date": filing.filed_date,
                 "accession_number": filing.accession_number,
                 "company_name": filing.company_name,
+                "document_url": filing.document_url.rsplit('/', 1)[0] + '/' + filing.primary_document,
             })
 
             source_label = f"{filing.form_type} filed {filing.filed_date} — {filing.company_name}"
@@ -108,11 +109,12 @@ def retriever_node(state: VerityState) -> VerityState:
     # ── Market Data: yfinance ─────────────────────────────────────────────────
     market_data = {}
     try:
-        price_history = yf_client.get_price_history(ticker, days=90)
+        price_history = yf_client.get_price_history(ticker, days=365)
         fundamentals = yf_client.get_fundamentals(ticker)
-        returns = yf_client.get_price_returns(ticker, days=90)
+        returns = yf_client.get_price_returns(ticker, days=90, history=price_history)
 
         market_data = {
+            'company_name': fundamentals.name,
             "current_price": price_history.current_price,
             "52w_high": price_history.fifty_two_week_high,
             "52w_low": price_history.fifty_two_week_low,
@@ -139,7 +141,9 @@ def retriever_node(state: VerityState) -> VerityState:
 
         # Embed market data summary
         mkt_text = _market_data_to_text(ticker, market_data)
-        filing_texts.append({"source": f"Market Data (yfinance) — {ticker}", "text": mkt_text})
+        from datetime import datetime, timezone
+        filing_texts.append({"source": f"Market Data (yfinance) — {ticker}", "text": mkt_text,
+                             'retrieved_at': datetime.now(timezone.utc).strftime('%B %d, %Y %H:%M UTC')})
         vs.add_document(
             collection_name=collection_name,
             text=mkt_text,
@@ -169,11 +173,14 @@ def retriever_node(state: VerityState) -> VerityState:
         except Exception as e:
             logger.warning(f"[Retriever] News fetch failed: {e}")
 
+    for doc in filing_texts:
+        doc['entity_aliases'] = [ticker, state.get('company_name', ''), market_data.get('company_name', '')]
     duration = time.monotonic() - start
     trace_entry = audit.log(
         node="retriever",
         inputs={"ticker": ticker, "collection_name": collection_name},
         outputs={
+            "retrieval_backend": settings.retrieval_backend,
             "filings_fetched": len(filings_meta),
             "metrics_found": len(key_metrics),
             "market_data_keys": list(market_data.keys()),

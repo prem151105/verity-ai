@@ -1,548 +1,210 @@
+"""Verity Research Observatory — an evidence-first local research workspace."""
 import sys
+from pathlib import Path
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+import json
 import os
 import time
-import json
 import requests
-import pandas as pd
 import streamlit as st
-from datetime import datetime
+import streamlit.components.v1 as components
+from ui.components import observatory
+from agents.demo import demo_runtime
+from agents.runtime import initial_state
 
-# Insert root directory to sys.path so we can import agents if needed
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+st.set_page_config(page_title='Verity / Research Observatory', page_icon='◈', layout='wide')
+API = os.environ.get('VERITY_API_URL', 'http://127.0.0.1:8000').rstrip('/')
+st.markdown("""<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+html,body,[class*="css"]{font-family:'DM Sans',sans-serif}
+.stApp{background:#101515;color:#e9eee7}.block-container{max-width:1380px;padding-top:2.2rem}
+header[data-testid="stHeader"]{background:#101515}h1,h2,h3{letter-spacing:-.035em}
+[data-testid="stSidebar"]{background:#151d19;border-right:1px solid #2b382f}
+[data-testid="stMetric"]{padding:18px;background:#18211b;border:1px solid #303e32;border-radius:9px}
+[data-testid="stMetricLabel"]{color:#b4c1b3}div.stButton>button{border-radius:8px}
+.brand{display:flex;justify-content:space-between;align-items:center;padding-bottom:22px;border-bottom:1px solid #344136;margin-bottom:36px;font:12px 'IBM Plex Mono',monospace;letter-spacing:2px}.brand strong{font-size:21px;color:#d4e6bc}.brand span{font-size:10px;color:#adbba9}
+.eyebrow{font:11px 'IBM Plex Mono',monospace;letter-spacing:2px;color:#b5cf9d;margin:12px 0 18px}
+.hero{font:clamp(38px,5vw,72px)/1.04 Georgia,serif;letter-spacing:-2px;margin:0 0 20px;color:#f1f0e6}.hero em{color:#bbd5a3;font-weight:400}
+.subtitle{font-size:15px;line-height:1.8;color:#adbbaa;max-width:710px;margin-bottom:28px}
+.note{border-left:2px solid #abc990;padding-left:20px;color:#abb9a7;font-size:13px;line-height:1.8;margin-top:24px}
+.footer{border-top:1px solid #344136;padding:22px 0;color:#91a08e;font:10px 'IBM Plex Mono',monospace;letter-spacing:1px;margin-top:40px}
+</style>""", unsafe_allow_html=True)
 
-# ── Page config ───────────────────────────────────────────────────────────────
-st.set_page_config(
-    page_title="Verity — Financial Research AI",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+for key,value in dict(result=None, run_id=None, events=[], status='idle', demo=False).items():
+    if key not in st.session_state:
+        st.session_state[key] = value
 
-API_BASE = "http://localhost:8000"
-
-# Check if the local API server is running
 @st.cache_data(ttl=5)
-def check_api_server():
+def api_health():
     try:
-        resp = requests.get(f"{API_BASE}/health", timeout=2)
-        return resp.status_code == 200
-    except Exception:
-        return False
+        r = requests.get(API + '/health', timeout=2)
+        return r.json() if r.ok else {}
+    except requests.RequestException:
+        return {}
 
-api_active = check_api_server()
-
-# ── Custom Styling ────────────────────────────────────────────────────────────
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;700&display=swap');
-
-html, body, [class*="css"] { font-family: 'Inter', sans-serif; background-color: #0A1220; color: #EDEFF5; }
-h1, h2, h3 { font-family: 'Source Serif 4', serif; }
-code, .jetbrains-font { font-family: 'JetBrains Mono', monospace; }
-
-.metric-card {
-    background: #111A2E;
-    border: 1px solid #1e293b;
-    border-radius: 12px;
-    padding: 1.2rem;
-    margin: 0.4rem 0;
-    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
-}
-
-.verified-badge {
-    background: rgba(34, 197, 94, 0.15); color: #22C55E;
-    padding: 10px 14px; border-radius: 6px; font-size: 0.9rem; font-weight: 500;
-    border-left: 4px solid #22C55E;
-    display: block; margin: 10px 0;
-}
-.unverified-badge {
-    background: rgba(239, 68, 68, 0.15); color: #EF4444;
-    padding: 10px 14px; border-radius: 6px; font-size: 0.9rem; font-weight: 500;
-    border-left: 4px solid #EF4444;
-    display: block; margin: 10px 0;
-}
-.stProgress > div > div { background: #6366F1; }
-
-/* Signature Moment Animation */
-.hero-anim-container {
-    display: flex; gap: 20px; align-items: center; justify-content: center;
-    background: #111A2E; padding: 30px; border-radius: 12px; margin-bottom: 30px;
-    border: 1px solid #1e293b;
-}
-.anim-agent-box {
-    background: #0A1220; border: 1px solid #334155; border-radius: 8px; padding: 16px;
-    width: 300px; text-align: left;
-}
-.anim-title { font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; color: #94a3b8; margin-bottom: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
-.anim-content { font-size: 1.1rem; line-height: 1.5; }
-.cite-tag { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: #94a3b8; background: #1e293b; padding: 2px 6px; border-radius: 4px; }
-
-@keyframes claimCorrection {
-    0%, 20% { content: "$500B"; color: #EDEFF5; }
-    25%, 45% { content: "$500B"; color: #EF4444; }
-    50%, 95% { content: "$300B"; color: #22C55E; }
-    100% { content: "$500B"; color: #EDEFF5; }
-}
-@keyframes verifierStatus {
-    0%, 20% { content: "Checking source [10-Q | pg. 14]..."; color: #94a3b8; }
-    25%, 45% { content: "Mismatched! Source says $300B. Rejecting claim."; color: #EF4444; }
-    50%, 95% { content: "Verified. Source matches claim."; color: #22C55E; }
-    100% { content: "Checking source [10-Q | pg. 14]..."; color: #94a3b8; }
-}
-@keyframes verifierBoxShadow {
-    0%, 20% { border-color: #334155; box-shadow: none; }
-    25%, 45% { border-color: #EF4444; box-shadow: 0 0 15px rgba(239, 68, 68, 0.2); }
-    50%, 95% { border-color: #22C55E; box-shadow: 0 0 15px rgba(34, 197, 94, 0.2); }
-    100% { border-color: #334155; box-shadow: none; }
-}
-
-.anim-claim-value::after { content: "$500B"; animation: claimCorrection 8s infinite; font-weight: 600; }
-.anim-verifier-text::after { content: "Checking source [10-Q | pg. 14]..."; animation: verifierStatus 8s infinite; }
-.verifier-box { animation: verifierBoxShadow 8s infinite; }
-
-</style>
-""", unsafe_allow_html=True)
-
-# ── Helper to Render Agent Timeline ──────────────────────────────────────────
-def render_pipeline_trace(active_node=None):
-    nodes = [
-        {"name": "Planner", "icon": "📅", "desc": "CIK & Task Planner"},
-        {"name": "Retriever", "icon": "📥", "desc": "EDGAR Filing Fetcher"},
-        {"name": "Analyst", "icon": "📊", "desc": "XBRL Ratio Calculator"},
-        {"name": "Writer", "icon": "✍️", "desc": "Cited Report Drafter"},
-        {"name": "Verifier", "icon": "🔍", "desc": "Factual Claim Evaluator"},
-        {"name": "Assembler", "icon": "📋", "desc": "Final Report & Indexer"}
-    ]
-    
-    html = """
-    <style>
-    body {
-        margin: 0;
-        background: transparent;
-        overflow: hidden;
-    }
-    .pipeline-container {
-        display: flex;
-        flex-direction: row;
-        justify-content: center;
-        align-items: center;
-        width: 100%;
-        padding: 24px 18px;
-        background: #111A2E;
-        border: 1px solid #1e293b;
-        border-radius: 12px;
-        margin-bottom: 30px;
-        overflow-x: auto;
-        box-sizing: border-box;
-    }
-    .pipeline-node {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        padding: 12px 16px;
-        border-radius: 8px;
-        background: #0A1220;
-        border: 1px solid #334155;
-        min-width: 140px;
-        text-align: center;
-        transition: all 0.3s ease;
-    }
-    .pipeline-node.active {
-        background: #6366F1;
-        border: 2px solid #818cf8;
-        box-shadow: 0 0 20px rgba(99, 102, 241, 0.4);
-        transform: scale(1.05);
-    }
-    .pipeline-node.completed {
-        border-color: #4f46e5;
-        background: rgba(79, 70, 229, 0.1);
-    }
-    .node-icon {
-        font-size: 1.5rem;
-        margin-bottom: 4px;
-    }
-    .node-name {
-        font-weight: 700;
-        font-size: 0.9rem;
-        color: #EDEFF5;
-    }
-    .node-desc {
-        font-size: 0.7rem;
-        color: #94a3b8;
-    }
-    .pipeline-node.active .node-desc, .pipeline-node.active .node-name {
-        color: #ffffff;
-    }
-    .pipeline-arrow {
-        color: #334155;
-        font-size: 1.5rem;
-        font-weight: bold;
-        margin: 0 10px;
-        user-select: none;
-    }
-    </style>
-    <div class="pipeline-container">
-    """
-    
-    node_names = [n["name"].lower() for n in nodes]
-    active_idx = node_names.index(active_node.lower()) if active_node and active_node.lower() in node_names else -1
-    
-    for i, node in enumerate(nodes):
-        status_class = ""
-        if active_node and node["name"].lower() == active_node.lower():
-            status_class = "active"
-        elif active_idx != -1 and i < active_idx:
-            status_class = "completed"
-            
-        html += f"""
-        <div class="pipeline-node {status_class}">
-            <div class="node-icon">{node["icon"]}</div>
-            <div class="node-name">{node["name"]}</div>
-            <div class="node-desc">{node["desc"]}</div>
-        </div>
-        """
-        if i < len(nodes) - 1:
-            html += '<div class="pipeline-arrow">➔</div>'
-            
-    html += "</div>"
-    return html
-
-# ── Pre-loaded Demo Report Loader ─────────────────────────────────────────────
-def load_nvda_demo():
-    try:
-        with open("reports/NVDA_equity_research.md", "r", encoding="utf-8") as f:
-            report_content = f.read()
-    except Exception:
-        report_content = "Failed to load pre-computed Nvidia report. Make sure reports/NVDA_equity_research.md is in the project directory."
-        
-    return {
-        "ticker": "NVDA",
-        "company_name": "NVIDIA Corporation",
-        "final_report": report_content,
-        "citation_count": 14,
-        "verified_citation_count": 14,
-        "citation_coverage_pct": 100.0,
-        "trace_node_count": 6,
-        "unverified_claims": [],
-        "financial_ratios": {
-            "gross_margin": {"value": 76.15, "source": "SEC 10-K 2025"},
-            "yoy_revenue_growth": {"value": 125.40, "source": "SEC 10-K 2025"},
-            "operating_margin": {"value": 54.12, "source": "SEC 10-K 2025"},
-            "debt_to_equity": {"value": 0.22, "source": "SEC 10-K 2025"},
-            "current_ratio": {"value": 3.84, "source": "SEC 10-K 2025"}
-        },
-        "confidence_by_section": {
-            "Executive Summary": 100.0,
-            "Core Financial Ratios": 100.0,
-            "Financial Performance & Growth": 100.0,
-            "Relationship Mapping": 98.0
-        }
-    }
-
-# Setup state
-if "run_id" not in st.session_state:
-    st.session_state.run_id = None
-if "result" not in st.session_state:
-    st.session_state.result = None
-if "ticker" not in st.session_state:
-    st.session_state.ticker = None
-if "active_agent" not in st.session_state:
-    st.session_state.active_agent = None
-
-# ── Sidebar Configurations ────────────────────────────────────────────────────
+health = api_health()
 with st.sidebar:
-    st.title("⚡ Verity AI Dashboard")
-    st.caption("Multi-Agent Financial Research System")
+    st.markdown('### ◈ verity')
+    st.caption('THE RESEARCH OBSERVATORY')
     st.divider()
-    
-    ticker_input = st.text_input(
-        "US Stock Ticker",
-        placeholder="AAPL, MSFT, GOOGL, NVDA...",
-        value=st.session_state.ticker if st.session_state.ticker else "NVDA"
-    ).upper().strip()
-    
-    use_in_process = not api_active
-    api_key_input = ""
-    user_agent_input = ""
-    
-    if use_in_process:
-        st.info("Running self-contained — add a Gemini key or load the demo below.")
-        api_key_input = st.text_input("Gemini API Key", type="password", value=os.environ.get("GEMINI_API_KEY", ""))
-        user_agent_input = st.text_input("SEC User-Agent Header", placeholder="YourName contact@domain.com", value=os.environ.get("SEC_USER_AGENT", "VerityDemo/1.0 User@example.com"))
-        
-    run_btn = st.button("🔍 Run Multi-Agent System", use_container_width=True, type="primary")
-    
-    st.divider()
-    st.subheader("Instant Demo")
-    load_demo_btn = st.button("🚀 Load NVIDIA Demo Report", use_container_width=True)
-    
-    st.divider()
-    if api_active:
-        st.success("🟢 Local API Connected")
+    st.markdown('**Your research brief**')
+    ticker = st.text_input('Company ticker', 'NVDA', max_chars=10).strip().upper()
+    st.caption('SEC filings · company facts · market context')
+    running = st.session_state.status in ('running','cancelling')
+    launch = st.button('Begin research ↗', type='primary', use_container_width=True, disabled=running)
+    demo = st.button('Explore a sample run', use_container_width=True, disabled=running)
+    st.caption('No key needed. Synthetic company, real local evidence checks.')
+    if health:
+        st.caption('● Research service connected' + ('' if health.get('model_configured') else ' · model key needed'))
+        st.caption('Document search: ' + ('local BM25' if health.get('retrieval_backend') == 'bm25' else 'Gemini embeddings'))
+        st.caption('Workflow: ' + health.get('research_mode', 'fast'))
     else:
-        st.info("☁️ Running self-contained — add a Gemini key or load the demo below.")
-
-# ── MAIN PANEL ────────────────────────────────────────────────────────────────
-st.title("Verity — Verified Financial Research")
-st.write(
-    "Verity is an autonomous research system built on **LangGraph**. A team of 6 LLM agents retrieves raw SEC filings, "
-    "computes financial ratios, and drafts a cited equity research report. The core differentiator is the **Verifier Agent**, "
-    "which catches hallucinations by cross-checking every claim against its source before publication."
-)
-
-st.html("""
-<div class="hero-anim-container">
-    <div class="anim-agent-box">
-        <div class="anim-title">✍️ Writer Agent</div>
-        <div class="anim-content">NVIDIA Q3 Revenue was <span class="anim-claim-value"></span> <span class="cite-tag">[[CITE: 10-Q | pg. 14]]</span></div>
-    </div>
-    <div style="font-size: 24px; color: #475569;">➔</div>
-    <div class="anim-agent-box verifier-box">
-        <div class="anim-title">🔍 Verifier Agent</div>
-        <div class="anim-content anim-verifier-text" style="font-family: 'JetBrains Mono', monospace; font-size: 0.9rem;"></div>
-    </div>
-</div>
-""")
-
-st.divider()
-
-# Interactive Console Runner
-st.subheader("Live Multi-Agent Execution")
-
-# Check triggers
-if load_demo_btn:
-    st.session_state.result = load_nvda_demo()
-    st.session_state.run_id = "demo-nvda-123"
-    st.session_state.ticker = "NVDA"
-    st.session_state.active_agent = "Assembler"
-    st.success("Loaded pre-computed NVIDIA Corporation equity research report!")
-
-if run_btn and ticker_input:
-    st.session_state.result = None
-    st.session_state.run_id = None
-    st.session_state.ticker = ticker_input
-    
-    # ── LOCAL MODE (FASTAPI ACTIVE) ──────────────────────────────────────
-    if api_active:
-        with st.spinner(f"Kicking off FastAPI agent run for {ticker_input}..."):
+        st.caption('○ Research service offline · sample available')
+    st.divider()
+    st.markdown('**The research contract**')
+    st.caption('01  Source every cited claim\n\n02  Challenge assumptions\n\n03  Keep uncertainty visible')
+    with st.expander('Recent research runs'):
+        if health:
             try:
-                resp = requests.post(f"{API_BASE}/research/{ticker_input}", timeout=10)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    st.session_state.run_id = data["run_id"]
-                    
-                    # Live polling loop
-                    progress_bar = st.progress(0)
-                    pipeline_placeholder = st.empty()
-                    status_box = st.status("Agents executing sequentially...", expanded=True)
-                    
-                    for i in range(40):
-                        time.sleep(3)
-                        # Poll trace
-                        trace_resp = requests.get(f"{API_BASE}/research/{st.session_state.run_id}/trace", timeout=5)
-                        trace = trace_resp.json().get("trace", []) if trace_resp.ok else []
-                        
-                        completed = [t["node"] for t in trace]
-                        current_node = "planner"
-                        if completed:
-                            current_node = completed[-1]
-                        st.session_state.active_agent = current_node
-                        
-                        # Render updated HTML trace
-                        with pipeline_placeholder:
-                            st.components.v1.html(render_pipeline_trace(current_node), height=180, scrolling=False)
-                            
-                        status_box.empty()
-                        with status_box:
-                            for node_done in completed:
-                                st.write(f"✅ Node **{node_done.upper()}** execution finished.")
-                                
-                        progress_bar.progress(min((i + 1) / 40, 0.95))
-                        
-                        # Check if complete
-                        report_resp = requests.get(f"{API_BASE}/research/{st.session_state.run_id}", timeout=5)
-                        if report_resp.status_code == 200:
-                            st.session_state.result = report_resp.json()
-                            progress_bar.empty()
-                            status_box.update(label="Research Complete!", state="complete")
-                            break
-                    else:
-                        st.error("Research timed out. Reloading to check results.")
-                else:
-                    st.error(f"API Error: {resp.text}")
-            except Exception as e:
-                st.error(f"Connection failed: {e}")
-                
-    # ── CLOUD MODE (IN-PROCESS EXECUTION) ────────────────────────────────
-    else:
-        if not api_key_input:
-            st.error("Please enter a Gemini API Key in the sidebar or load the NVIDIA pre-computed demo.")
+                recent = requests.get(API + '/runs', timeout=3).json().get('runs', [])
+                for r in recent[:8]:
+                    if st.button(f"{r['ticker']} · {r['status']}", key=r['run_id']):
+                        st.session_state.update(run_id=r['run_id'], status=r['status'], events=[], result=None, demo=False)
+                        st.rerun()
+            except requests.RequestException:
+                st.caption('Could not fetch history.')
         else:
-            os.environ["GEMINI_API_KEY"] = api_key_input
-            os.environ["SEC_USER_AGENT"] = user_agent_input
-            
-            # Dynamic stream function
-            def run_research_stream(ticker: str):
-                from agents.graph import build_graph
-                import uuid
-                run_id = str(uuid.uuid4())
-                graph = build_graph()
-                initial_state = {
-                    "ticker": ticker.upper().strip(),
-                    "run_id": run_id,
-                    "company_name": "",
-                    "task_list": [],
-                    "filings": [],
-                    "filing_texts": [],
-                    "market_data": {},
-                    "news_items": [],
-                    "collection_name": "",
-                    "financial_ratios": {},
-                    "key_metrics": {},
-                    "analyst_summary": "",
-                    "draft_report": "",
-                    "citations": [],
-                    "verifier_iteration": 0,
-                    "verifier_feedback": "",
-                    "unverified_claims": [],
-                    "final_report": "",
-                    "confidence_by_section": {},
-                    "error": None,
-                    "trace": [],
-                }
-                state = initial_state
-                yield "start", state
-                for event in graph.stream(initial_state):
-                    for node_name, state_update in event.items():
-                        state = {**state, **state_update}
-                        yield node_name, state
-                yield "completed", state
+            st.caption('Start the API to save and revisit runs.')
 
-            # Start streaming logs
-            progress_bar = st.progress(0)
-            pipeline_placeholder = st.empty()
-            status_box = st.status("Initializing in-process Agent Graph...", expanded=True)
-            
+st.markdown('<div class="brand"><strong>◈ VERITY</strong><span>FINANCIAL RESEARCH / OPEN TO SCRUTINY</span></div>', unsafe_allow_html=True)
+a,b = st.columns([3,1])
+with a:
+    st.markdown('<div class="eyebrow">AN OBSERVATORY FOR EVIDENCE</div><div class="hero">Follow the evidence.<br><em>Question the conclusion.</em></div><div class="subtitle">A team of specialized agents turns company filings into research you can inspect. Watch the handoffs, challenge the assumptions, and trace cited claims back to their sources.</div>', unsafe_allow_html=True)
+with b:
+    st.markdown('<div class="note">EIGHT SPECIALIZED ROLES<br>One visible research process.<br><br>From the first question to the final citation, uncertainty stays in view.</div>', unsafe_allow_html=True)
+
+if launch:
+    try:
+        response = requests.post(f'{API}/research/{ticker}', timeout=10)
+        if response.ok:
+            st.session_state.update(run_id=response.json()['run_id'], result=None, events=[], status='running', demo=False)
+        else:
+            st.error(response.json().get('detail', 'Could not start research.'))
+    except requests.RequestException:
+        st.error('Start the local research API to run live research. The sample and evidence lab work offline.')
+
+if demo:
+    st.session_state.update(result=None, events=[], demo=True, status='demo', run_id=None)
+    placeholder = st.empty()
+    for packet in demo_runtime().stream(initial_state('DEMO')):
+        state = next(iter(packet.values()))
+        with placeholder:
+            components.html(observatory(state['events'], demo=True), height=580, scrolling=True)
+        time.sleep(.18)
+    placeholder.empty()
+    st.session_state.update(result=state, events=state['events'], status=state['status'])
+
+@st.fragment(run_every=3 if st.session_state.run_id and st.session_state.result is None else None)
+def workspace():
+    run_id = st.session_state.run_id
+    if run_id and st.session_state.result is None:
+        try:
+            response = requests.get(f'{API}/research/{run_id}/events', timeout=4)
+            if response.ok:
+                payload = response.json()
+                st.session_state.events = payload['events']
+                st.session_state.status = payload['status']
+                if payload['status'] == 'completed':
+                    result = requests.get(f'{API}/research/{run_id}', timeout=5)
+                    result.raise_for_status()
+                    st.session_state.result = result.json()
+                    st.rerun()
+                elif payload['status'] in ('failed', 'interrupted', 'cancelled'):
+                    st.warning(f"Run {payload['status']}: {payload.get('error') or 'Stopped at an agent boundary.'}")
+            else:
+                st.warning('The selected run could not be loaded.')
+        except requests.RequestException:
+            st.warning('Connection interrupted. Your run remains on the research service; retrying automatically.')
+    st.markdown('#### 01 / Research observatory')
+    components.html(observatory(st.session_state.events, st.session_state.demo), height=580, scrolling=True)
+    if st.session_state.status in ('running','cancelling'):
+        st.caption('Showing actual agent events. A model call can take several minutes.')
+        if st.button('Stop after current agent', disabled=st.session_state.status == 'cancelling'):
             try:
-                state_trace = []
-                steps = ["planner", "retriever", "analyst", "writer", "verifier", "assembler"]
-                for idx, (node_name, state) in enumerate(run_research_stream(ticker_input)):
-                    if node_name == "start":
-                        status_box.write("🚀 Graph initialized. Routing to **PLANNER**.")
-                        st.session_state.active_agent = "planner"
-                    elif node_name == "completed":
-                        status_box.write("🎉 Execution finished! Reconciling final report.")
-                        # Format state response
-                        citations = state.get("citations", [])
-                        verified = [c for c in citations if c.get("verified")]
-                        st.session_state.result = {
-                            "ticker": state.get("ticker", ""),
-                            "company_name": state.get("company_name", ""),
-                            "final_report": state.get("final_report", ""),
-                            "citation_count": len(citations),
-                            "verified_citation_count": len(verified),
-                            "citation_coverage_pct": round(len(verified) / max(len(citations), 1) * 100, 1),
-                            "unverified_claims": state.get("unverified_claims", []),
-                            "confidence_by_section": state.get("confidence_by_section", {}),
-                            "financial_ratios": state.get("financial_ratios", {}),
-                            "trace_node_count": len(state.get("trace", [])),
-                            "error": state.get("error"),
-                        }
-                        st.session_state.run_id = state.get("run_id")
-                    else:
-                        st.session_state.active_agent = node_name
-                        status_box.write(f"🤖 Active Agent Node: **{node_name.upper()}** has completed execution.")
-                        
-                    # Update HTML graph
-                    with pipeline_placeholder:
-                        st.components.v1.html(render_pipeline_trace(st.session_state.active_agent), height=180, scrolling=False)
-                        
-                    if node_name in steps:
-                        progress_val = (steps.index(node_name) + 1) / len(steps)
-                        progress_bar.progress(min(progress_val, 0.95))
-                        
-                progress_bar.empty()
-                status_box.update(label="In-process run completed successfully!", state="complete")
-            except Exception as ex:
-                st.error(f"In-process execution failed: {ex}")
-                st.exception(ex)
+                r = requests.post(f'{API}/research/{run_id}/cancel', timeout=4)
+                r.raise_for_status()
+                st.session_state.status = 'cancelling'
+                st.info('Stop requested. Waiting for the current agent to finish.')
+            except requests.RequestException:
+                st.error('Could not deliver the stop request. Please retry.')
+workspace()
 
-# Display active pipeline
-if st.session_state.active_agent:
-    st.components.v1.html(render_pipeline_trace(st.session_state.active_agent), height=180, scrolling=False)
-
-# ── Display Results ──────────────────────────────────────────────────────────
-if st.session_state.result:
-    res = st.session_state.result
-    ticker = res.get("ticker", "")
-    company = res.get("company_name", ticker)
-    
-    st.subheader(f"📋 {company} ({ticker}) — Research Report")
-    
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        cov = res.get("citation_coverage_pct", 0)
-        color = "🟢" if cov >= 80 else "🟡" if cov >= 60 else "🔴"
-        st.metric("Citation Coverage", f"{color} {cov:.0f}%")
-    with col2:
-        st.metric("Citations Verified", f"{res.get('verified_citation_count', 0)}/{res.get('citation_count', 0)}")
-    with col3:
-        st.metric("Agent Nodes Run", res.get("trace_node_count", 0))
-    with col4:
-        unv = len(res.get("unverified_claims", []))
-        st.metric("Unverified Claims", f"⚠️ {unv}" if unv > 0 else "✅ 0")
-        
-    st.divider()
-    
-    # Ratios & Report Side by Side
-    col_rep, col_rat = st.columns([2, 1])
-    
-    with col_rep:
-        st.subheader("📄 Factual Research Report")
-        st.markdown(res.get("final_report", "Report not available."))
-        
-    with col_rat:
-        st.subheader("📊 Financial Ratios")
-        st.caption("Computed deterministically from raw SEC XBRL values.")
-        
-        ratios = res.get("financial_ratios", {})
+result = st.session_state.result
+if result:
+    if result.get('error'):
+        st.error(result['error'])
+    citations = result.get('citations') or []
+    verified = sum(bool(c.get('verified')) for c in citations)
+    m1,m2,m3,m4 = st.columns(4)
+    m1.metric('Cited claims supported', f'{verified} / {len(citations)}')
+    m2.metric('Needs review', str(len(citations)-verified))
+    m3.metric('Verification rounds', str(result.get('verifier_iteration') or sum(e['node']=='verifier' and e['kind']=='completed' for e in st.session_state.events)))
+    m4.metric('Remote claim judgments', str(result.get('verification_remote_used') or 0))
+    st.caption('Support is agreement with retrieved evidence, not a guarantee of truth. Uncited claims are not included in this count.')
+    report_tab,evidence_tab,review_tab,trace_tab = st.tabs(['Research note','Evidence ledger','Skeptical review','Run record'])
+    with report_tab:
+        st.markdown(result.get('final_report') or 'No report available.')
+        ratios = result.get('financial_ratios') or {}
         if ratios:
-            ratio_data = []
-            for name, data in ratios.items():
-                val = data.get("value", None)
-                src = data.get("source", "")
-                if isinstance(val, float):
-                    display = f"{val:.2f}"
-                    if "pct" in name or "margin" in name or "growth" in name or "return" in name:
-                        display += "%"
-                else:
-                    display = f"{val:,}" if isinstance(val, (int, float)) else str(val)
-                ratio_data.append({
-                    "Metric": name.replace("_", " ").title(),
-                    "Value": display,
-                    "Source": src,
-                })
-            st.dataframe(pd.DataFrame(ratio_data), use_container_width=True, hide_index=True)
-        else:
-            st.info("No ratios computed.")
-            
-        st.divider()
-        st.subheader("🔍 Claim Verification Log")
-        unverified = res.get("unverified_claims", [])
-        if unverified:
-            st.warning(f"⚠️ {len(unverified)} claim(s) failed verification:")
-            for i, claim in enumerate(unverified, 1):
-                with st.expander(f"Failed Claim {i}"):
-                    st.text(claim)
-        else:
-            st.success("✅ All claims successfully verified against source passages!")
-            
-        confidence = res.get("confidence_by_section", {})
-        if confidence:
-            st.caption("Confidence scores by section:")
-            st.bar_chart(pd.DataFrame(list(confidence.items()), columns=["Section", "Confidence"]).set_index("Section"))
+            with st.expander('Computed financial ratios'):
+                st.dataframe([{'Metric': name.replace('_', ' ').title(),
+                               'Value': data.get('value'), 'Source': data.get('source', '')}
+                              for name, data in ratios.items()], use_container_width=True, hide_index=True)
+        st.download_button('Download research note ↓', result.get('final_report',''), 'verity-research.md', 'text/markdown')
+    with evidence_tab:
+        selection = st.selectbox('Show claims', ['All claims','Needs review','Supported'])
+        for i,c in enumerate(citations, 1):
+            supported = bool(c.get('verified'))
+            if selection == 'Needs review' and supported or selection == 'Supported' and not supported:
+                continue
+            with st.expander(f"{i:02} · {'SUPPORTED' if supported else 'NEEDS REVIEW'} · {c.get('claim','')}"):
+                st.caption(c.get('source',''))
+                st.write(c.get('verifier_reasoning',''))
+                ev = c.get('evidence') or {}
+                st.text(ev.get('text') or c.get('retrieved_passage') or 'No independent evidence retrieved.')
+                st.caption('Route: ' + str(c.get('verification_route','unknown')))
+                if ev.get('digest'):
+                    st.code(ev['digest'], language=None)
+        if not citations:
+            st.info('No cited claims were checked. This does not establish report accuracy.')
+    with review_tab:
+        st.markdown(result.get('skeptic_review') or 'No skeptical review available.')
+        st.caption('A challenge to the analysis, not a separately verified source.')
+        for issue in result.get('unverified_claims') or []:
+            st.warning(issue)
+    with trace_tab:
+        st.write('Termination:', result.get('stop_reason','—'))
+        st.dataframe(st.session_state.events, use_container_width=True, hide_index=True)
+        st.download_button('Export run record ↓', json.dumps(result, indent=2, default=str), 'verity-run.json', 'application/json')
 
-elif not run_btn:
-    st.info("👋 Welcome to Verity. To start, enter a stock ticker in the sidebar and run the agents, or load the pre-computed demo.")
+st.markdown('#### 02 / Evidence lab')
+with st.expander('Put a claim under the microscope', expanded=not bool(result)):
+    st.caption('A local check against your supplied text. No model key, no cloud calls.')
+    l,r = st.columns(2)
+    with l:
+        source_text = st.text_area('Source passage', 'Revenue was $120 million. Operating income was $24 million.', max_chars=50000)
+    with r:
+        claim = st.text_area('Claim to check', 'Revenue was $900 million.', max_chars=1000)
+    if st.button('Check this claim ↗'):
+        if not source_text.strip() or not claim.strip():
+            st.warning('Enter a source passage and a claim.')
+        else:
+            from research.cascade import Cascade
+            check = Cascade().verify([{'source':'Your source','claim':claim}], [{'source':'Your source','text':source_text}])
+            verdict = check['verdicts'][0]
+            (st.success if verdict['supported'] else st.warning)(f"{verdict['decision'].upper()} · {verdict['reasoning']}")
+            st.caption('Verification route: ' + verdict['route'])
+            st.json(verdict, expanded=False)
+st.markdown('<div class="footer">VERITY / RESEARCH YOU CAN INSPECT &nbsp; · &nbsp; SOURCE AGREEMENT ≠ TRUTH &nbsp; · &nbsp; RESEARCH PROTOTYPE</div>', unsafe_allow_html=True)

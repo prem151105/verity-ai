@@ -36,7 +36,7 @@ CRITICAL RULES:
 
 def analyst_node(state: VerityState) -> VerityState:
     """
-    LangGraph node: Analyst.
+    Verity runtime node: Analyst.
     Runs deterministic ratio computation, then LLM narrative generation.
     """
     start = time.monotonic()
@@ -82,6 +82,18 @@ def analyst_node(state: VerityState) -> VerityState:
 
     # ── Step 3: Build analysis prompt with computed ratios ────────────────────
     ratios_text = _format_ratios(financial_ratios)
+    ratio_document = {
+        'source': 'Financial Ratios Computation',
+        'entity_aliases': [ticker, state.get('company_name', '')],
+        'text': '\n'.join(
+            f"{name.replace('_pct', '').replace('_', ' ').capitalize()} was {data['value']}"
+            f"{'%' if name.endswith('_pct') else ''}. Calculation source: {data.get('source', '')}."
+            for name, data in financial_ratios.items()
+        ),
+    }
+    if financial_ratios:
+        vs.add_document(collection_name, ratio_document['text'], ratio_document['source'],
+                        metadata={'form_type': 'computed'})
     market_text = _format_market_data(state.get("market_data", {}))
     context_text = "\n\n".join(
         f"[SOURCE: {c.source}]\n{c.text[:600]}" for c in context_chunks[:6]
@@ -108,17 +120,12 @@ Write a structured financial analysis covering:
 Remember: cite every number with its [SOURCE] tag.
 """
 
-    analyst_summary = ""
-    try:
-        analyst_summary = call_llm(prompt, system_instruction=ANALYST_SYSTEM)
-        tool_calls.append({
-            "tool": "llm.generate",
-            "prompt_length": len(prompt),
-            "response_length": len(analyst_summary),
-        })
-    except Exception as e:
-        logger.error(f"[Analyst] LLM analysis failed: {e}")
-        analyst_summary = f"Analysis could not be generated: {str(e)}\n\n{ratios_text}"
+    # The writer interprets these facts once. Generating an extra prose summary
+    # here repeated the same reasoning and introduced another paraphrase layer.
+    analyst_summary = ratios_text + "\n\n" + market_text + "\n\n" + context_text
+    if settings.research_mode == 'deep':
+        analyst_summary = call_llm(prompt, system_instruction=ANALYST_SYSTEM, max_output_tokens=2048)
+        tool_calls.append({'tool': 'llm.generate', 'response_length': len(analyst_summary)})
 
     duration = time.monotonic() - start
     trace_entry = audit.log(
@@ -132,6 +139,7 @@ Remember: cite every number with its [SOURCE] tag.
     return {
         **state,
         "financial_ratios": financial_ratios,
+        "filing_texts": state.get('filing_texts', []) + ([ratio_document] if financial_ratios else []),
         "analyst_summary": analyst_summary,
         "trace": state.get("trace", []) + [trace_entry],
     }

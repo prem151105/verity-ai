@@ -5,6 +5,7 @@ Updated to Pydantic V2 / pydantic-settings V2 syntax.
 """
 
 from typing import Literal
+from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -26,19 +27,21 @@ class Settings(BaseSettings):
     # Storage
     chroma_persist_dir: str = Field(default="./chroma_db", alias="CHROMA_PERSIST_DIR")
     audit_log_dir: str = Field(default="./audit_logs", alias="AUDIT_LOG_DIR")
+    retrieval_backend: Literal['bm25', 'gemini'] = 'bm25'
+    research_mode: Literal['fast', 'deep'] = 'fast'
 
     # Agent config
-    verifier_max_retries: int = Field(default=2, alias="VERIFIER_MAX_RETRIES")
+    verifier_max_retries: int = Field(default=2, ge=1, le=5, alias="VERIFIER_MAX_RETRIES")
 
     verification_backend: Literal["rules", "torch", "onnx"] = "rules"
-    verification_remote_budget: int = Field(default=2, ge=0, le=100)
+    verification_remote_budget: int = Field(default=24, ge=0, le=100)
 
     # Server
     api_host: str = Field(default="0.0.0.0", alias="API_HOST")
     api_port: int = Field(default=8000, alias="API_PORT")
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=Path(__file__).resolve().parent / ".env",
         env_file_encoding="utf-8",
         extra="ignore",
         populate_by_name=True,

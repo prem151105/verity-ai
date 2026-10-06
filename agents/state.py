@@ -1,5 +1,5 @@
 """
-Verity LangGraph Shared State
+Verity shared research state
 Defines the TypedDict that flows through all agent nodes.
 Every node reads from and writes to this state.
 """
@@ -31,7 +31,7 @@ class AgentTrace:
 
 
 class VerityState(TypedDict):
-    """Shared state flowing through the LangGraph state graph."""
+    """Shared state flowing through the Verity runtime state graph."""
 
     # ── Input ─────────────────────────────────────────────────────────────────
     ticker: str
@@ -46,12 +46,13 @@ class VerityState(TypedDict):
     filing_texts: list[dict]   # {source: str, text: str}
     market_data: dict          # Price history summary + fundamentals
     news_items: list[dict]     # {title, url, published_at, summary}
-    collection_name: str       # ChromaDB collection for this run
+    collection_name: str       # Passage collection for this run
 
     # ── Analyst output ────────────────────────────────────────────────────────
     financial_ratios: dict     # Computed ratios (from code_executor, not LLM)
     key_metrics: dict          # Raw XBRL metrics
     analyst_summary: str       # Narrative analysis with source tags
+    skeptic_review: str        # Challenge observations, not verified evidence
 
     # ── Writer output ─────────────────────────────────────────────────────────
     draft_report: str          # Full markdown report with inline citations
@@ -60,6 +61,7 @@ class VerityState(TypedDict):
     # ── Verifier state ────────────────────────────────────────────────────────
     verification_remote_used: int
     verification_metrics: dict
+    verification_cache: dict
     verifier_iteration: int    # Current retry count (max = VERIFIER_MAX_RETRIES)
     verifier_feedback: str     # Feedback from verifier to writer
     unverified_claims: list[str]  # Claims the verifier could NOT verify
@@ -68,6 +70,11 @@ class VerityState(TypedDict):
     final_report: str
     confidence_by_section: dict[str, float]
     error: Optional[str]
+    status: str
+    stop_reason: str
+    next_node: str
+    review_history: list[str]  # Draft digests used for stagnation detection
 
     # ── Observability ─────────────────────────────────────────────────────────
     trace: list[dict]          # Serialized AgentTrace entries (append-only)
+    events: list[dict]         # Runtime lifecycle events (append-only)

@@ -32,6 +32,7 @@ class Filing:
     accession_number: str
     document_url: str
     text_content: Optional[str] = None
+    primary_document: str = ""
 
 
 class EdgarClient:
@@ -143,11 +144,12 @@ class EdgarClient:
         forms = recent.get("form", [])
         dates = recent.get("filingDate", [])
         accessions = recent.get("accessionNumber", [])
+        primary_documents = recent.get("primaryDocument", [])
 
         results: list[Filing] = []
         counts: dict[str, int] = {}
 
-        for form, date, accession in zip(forms, dates, accessions):
+        for idx, (form, date, accession) in enumerate(zip(forms, dates, accessions)):
             if form not in form_types:
                 continue
             if counts.get(form, 0) >= limit:
@@ -168,6 +170,7 @@ class EdgarClient:
                     filed_date=date,
                     accession_number=accession,
                     document_url=doc_url,
+                    primary_document=primary_documents[idx] if idx < len(primary_documents) else "",
                 )
             )
             counts[form] = counts.get(form, 0) + 1
@@ -189,6 +192,11 @@ class EdgarClient:
         Falls back to the full filing .txt if no HTML found.
         Returns plain text (HTML stripped).
         """
+        # The directory is alphabetical, so its first HTML may be an exhibit.
+        # SEC submissions identifies the actual primary filing document.
+        if filing.primary_document:
+            base = filing.document_url.rsplit('/', 1)[0] + '/'
+            return self._strip_html(self._get_text(base + filing.primary_document))
         try:
             index_data = self._get(filing.document_url)
         except Exception as e:
@@ -288,12 +296,9 @@ class EdgarClient:
         }
 
         result: dict[str, list[dict]] = {}
-        seen: set[str] = set()  # avoid duplicate metric names
-
         for concept, metric_name in TARGET_CONCEPTS.items():
-            if metric_name in seen or concept not in us_gaap:
+            if concept not in us_gaap:
                 continue
-            seen.add(metric_name)
 
             units_data = us_gaap[concept].get("units", {})
             # Primary unit: USD for financials, shares for counts, pure for ratios
@@ -306,14 +311,22 @@ class EdgarClient:
                         "filed": e.get("filed", ""),
                         "form": e.get("form", ""),
                         "period_end": e.get("end", ""),
+                        "period_start": e.get("start", ""),
                         "accession": e.get("accn", ""),
                     }
                     for e in entries
                     if e.get("form") in ("10-K", "10-Q")
                 ]
                 if relevant:
-                    relevant.sort(key=lambda x: x["filed"], reverse=True)
-                    result[metric_name] = relevant[:8]  # last 8 periods
+                    result.setdefault(metric_name, []).extend(relevant)
                     break
-
+        for metric_name, entries in result.items():
+            # A recent filing includes prior-year comparisons. Filing date alone
+            # selects stale values and mixes quarter / year-to-date durations.
+            entries.sort(key=lambda x: (x['period_end'], x['period_start'], x['filed']), reverse=True)
+            unique = {}
+            for entry in entries:
+                key = (entry['period_start'], entry['period_end'], entry['unit'])
+                unique.setdefault(key, entry)
+            result[metric_name] = list(unique.values())[:40]
         return result

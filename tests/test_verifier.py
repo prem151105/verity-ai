@@ -160,10 +160,9 @@ class TestVerifierLogic:
 
     @patch("agents.verifier.call_llm")
     @patch("agents.verifier.AuditLogger")
-    def test_verifier_sends_feedback_on_first_failure(self, mock_audit, mock_llm):
+    def test_missing_evidence_abstains_without_rewriting(self, mock_audit, mock_llm):
         """
-        On first failure (iteration 0), verifier should set feedback for Writer.
-        On last iteration, it should mark claims as UNVERIFIED instead.
+        Missing evidence should be flagged without spending another report call.
         """
         import json
 
@@ -190,12 +189,12 @@ class TestVerifierLogic:
 
             result = verifier_node(state)
 
-        # First failure: should have feedback (route back to writer)
-        assert result["verifier_feedback"] != ""
+        # A rewrite cannot manufacture independent evidence.
+        assert result["verifier_feedback"] == ""
         with patch("agents.verifier.settings") as s:
             s.verifier_max_retries = 2
             route = should_loop_to_writer(result)
-        assert route == "writer"
+        assert route == "assembler"
 
 
 class TestFinancialRatioComputation:

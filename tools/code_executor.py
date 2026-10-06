@@ -32,7 +32,17 @@ def compute_financial_ratios(metrics: dict[str, list[dict]]) -> dict[str, Any]:
 
     def yoy_growth(metric_name: str) -> float | None:
         """Year-over-year growth rate for annual filings."""
-        entries = [e for e in metrics.get(metric_name, []) if e.get("form") == "10-K"]
+        from datetime import date
+        entries = []
+        for e in metrics.get(metric_name, []):
+            if e.get('form') != '10-K':
+                continue
+            if e.get('period_start') and e.get('period_end'):
+                duration = (date.fromisoformat(e['period_end']) - date.fromisoformat(e['period_start'])).days
+                if not 300 <= duration <= 400:
+                    continue
+            if not any(x.get('period_end') == e.get('period_end') for x in entries):
+                entries.append(e)
         if len(entries) < 2:
             return None
         current = entries[0]["value"]

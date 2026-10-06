@@ -1,11 +1,5 @@
-# Core LLM / Agent orchestration
-langgraph>=0.2.0
-langchain>=0.3.0
-langchain-google-genai>=2.0.0
+# Direct model client; orchestration lives in agents/runtime.py
 google-genai>=1.0,<2
-
-# Vector store (embedded, no external infra)
-chromadb>=0.5.0
 
 # Financial data (free, no key needed)
 yfinance>=0.2.40

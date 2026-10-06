@@ -1,0 +1,2 @@
+# Optional Gemini semantic retrieval backend
+chromadb>=1.0,<2

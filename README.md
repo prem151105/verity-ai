@@ -1,30 +1,52 @@
-# Verity
+<div align="center">
 
-Financial research from SEC filings, with a second pass over the evidence.
+# ◈ Verity
 
-[Getting started](#getting-started) · [How it works](#how-it-works) · [Verification](#verification) · [Development](#development)
+### Follow the evidence. Question the conclusion.
 
-A citation can look convincing and still point to the wrong evidence. Verity is built around checking that gap: it takes a stock ticker, gathers company filings and market data, calculates financial ratios, and writes a report. A separate verifier checks the cited statements against the retrieved documents and sends problems back for revision.
+An open financial research observatory: eight specialized roles, independent claim checks, and a research process you can inspect.
 
-The report includes its citations and flags anything the verifier could not support. You can run the full research app or use the verification engine on documents you already have.
+[Explore the demo](#try-it) · [The research process](#the-research-process) · [50-paper research ledger](docs/research-ledger.md) · [API](#api) · [Development](#development)
 
-## How it works
+</div>
 
-![Animated workflow from Planner to Retriever, Analyst, Writer, Verifier, and Assembler, with a correction loop between Verifier and Writer](assets/readme/agent-workflow.gif)
+---
 
-*The animation shows execution order and one possible rewrite, not a live run. [Still version](assets/readme/agent-workflow.svg).*
+A polished report can hide a weak argument. A citation can point to a document that never supported the claim. Verity makes that gap visible.
 
-The six nodes share state through LangGraph:
+Give it a company ticker. The system retrieves SEC filings and market context, computes financial ratios, challenges the analysis, and drafts a cited research note. An independent verification pass checks cited claims against the original retrieved text. A bounded review loop requests corrections and keeps unresolved claims visible.
 
-- **Planner → Retriever:** resolve the company, prepare research tasks, then fetch SEC filings, XBRL facts, and market data. The original documents are retained alongside the retrieval index.
-- **Analyst → Writer:** calculate ratios in Python, interpret the results, and draft a report with structured citations. Arithmetic stays in code.
-- **Verifier → Assembler:** retrieve evidence within the cited source, judge the claims, and return feedback while retries remain. Assemble the final report with its citation index and unresolved flags.
+**You get the research note and the record behind it:** agent handoffs, source excerpts, verification routes, skeptical observations, and downloadable results.
 
-The verifier never uses the writer's quoted passage as independent evidence. Its input is the source text retained during retrieval. See [the graph](agents/graph.py) and [verifier integration](agents/verifier.py).
+![Verity research observatory: live event log and eight-role agent map](assets/readme/observatory.png)
 
-## Getting started
+## Watch the evidence change the report
 
-Python 3.10+ is required. From the repository root, create and activate a virtual environment:
+![Synthetic ExampleCo session: a numeric mismatch triggers revision before the corrected claim is checked](assets/readme/research-session.gif)
+
+*An actual execution of the offline synthetic case, rendered through the same observatory component as the app. Planning, retrieval, analysis, skepticism, and writing use fixtures; the local verification cascade actually executes. This is not live market research or a financial-accuracy benchmark.*
+
+The example intentionally starts with a $900 million revenue claim against a source stating $120 million. The verifier flags the mismatch, the adjudicator requests revision, and the corrected exact statement passes the next check. The original [workflow animation](assets/readme/agent-workflow.gif) is retained as a historical six-stage illustration.
+
+A complete live NVIDIA run has also been checked with Gemini, SEC filings, and yfinance. See the [live validation record](docs/live-validation.md) and [saved report](reports/NVDA_live_research.md), including its unresolved verification flags.
+
+## What you can do
+
+| Feature | What it gives you |
+|---|---|
+| Research observatory | A session log beside an agent map, driven by actual started/completed/failed events |
+| Evidence ledger | Filter supported claims and claims needing review; inspect independent excerpts and verification routes |
+| Skeptical review | A dedicated pass to surface assumptions, missing evidence, and possible counter-evidence before writing |
+| Bounded revision | A deterministic adjudicator stops unchanged drafts and enforces the review limit |
+| Evidence lab | Paste a claim and source passage for local, key-free checking |
+| Run history | SQLite snapshots retain results and agent checkpoints across API restarts |
+| Stop control | Request cancellation at the next agent boundary |
+| Exports | Download the research note as Markdown and the run record as JSON |
+| Offline sample | Explore the interface without keys or external data services |
+
+## Try it
+
+Python 3.10+ is required. Create a virtual environment and install the dependencies:
 
 ```bash
 python -m venv .venv
@@ -40,34 +62,84 @@ python -m venv .venv
 source .venv/bin/activate
 ```
 
-Install the application dependencies:
-
 ```bash
 pip install -r requirements.txt
+python run_app.py
 ```
 
-Copy [.env.example](.env.example) to `.env` and set your Gemini key and SEC contact identity:
+The launcher starts the research API and dashboard together and opens [localhost:8501](http://localhost:8501). On Windows you can also double-click `start.bat`. Configure the Gemini key in `.env` first. To explore without a key, start only the dashboard with `streamlit run ui/app.py` and choose **Explore a sample run**. The sample and evidence lab work without the API, Gemini, or network access. The optional web fonts may fall back to system fonts offline.
+
+### Configure live company research
+
+Copy [.env.example](.env.example) to `.env`, then configure your model key and SEC contact identity:
 
 ```dotenv
 GEMINI_API_KEY=your_key_here
 SEC_USER_AGENT=YourName/1.0 contact@example.com
+VERIFICATION_BACKEND=rules
+VERIFICATION_REMOTE_BUDGET=24
+RESEARCH_MODE=fast
+VERIFIER_MAX_RETRIES=2
 ```
 
-Start the API, then the dashboard in a second terminal:
+Start both services with `python run_app.py` or double-click `start.bat`. For separate terminals, start the API with:
 
 ```bash
-uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
+uvicorn api.main:app --host 127.0.0.1 --port 8000
 ```
 
-```bash
-streamlit run ui/app.py
+Refresh the dashboard, enter a ticker such as `AAPL`, and choose **Begin research**. Live runs need network access and use Gemini generation, SEC EDGAR, and yfinance. Document retrieval defaults to persistent local BM25, which avoids embedding-service quota. Optional semantic retrieval requires `pip install -r requirements-semantic.txt` and `RETRIEVAL_BACKEND=gemini`; it uses batched `gemini-embedding-001` vectors. Optional news retrieval uses `NEWS_API_KEY`. Model availability and quotas depend on your provider account. Configure `GEMINI_MODEL` if needed.
+
+`VERITY_API_URL` can point the dashboard at another API address. Put credentials in the private `.env` file, never in `.env.example`. The configured model must be available to your account; `gemini-3-flash-preview` was verified in the live check. Keys are configured on the API server; the dashboard does not collect or change a shared server key.
+
+## The research process
+
+```mermaid
+flowchart LR
+    P[Planner] --> R[Retriever]
+    R --> A[Analyst]
+    A --> S[Skeptic]
+    S --> W[Writer]
+    W --> V[Verifier]
+    V --> J{Adjudicator}
+    J -->|revision within budget| W
+    J -->|done or bounded stop| F[Assembler]
+    R -. original evidence .-> V
 ```
 
-Open [localhost:8501](http://localhost:8501), enter a ticker such as `AAPL`, and start the research run. The full workflow needs network access and uses Gemini for generation and embeddings.
+| Role | Responsibility |
+|---|---|
+| Planner | Resolve the company and prepare a research brief |
+| Retriever | Gather filings, XBRL facts, market data, and optional news; retain independent text |
+| Analyst | Compute ratios in Python and interpret the supplied data |
+| Skeptic | Challenge the analysis using targeted risk excerpts; distinguish observations from hypotheses |
+| Writer | Draft the note with exact source labels and address the review |
+| Verifier | Check cited claims against original retrieved evidence; preserve uncertainty |
+| Adjudicator | Decide whether to revise or stop; never convert an unsupported claim into a supported one |
+| Assembler | Package the report, citations, and unresolved flags |
 
-## Verification
+These are **eight workflow roles**, not eight independent models. Several roles combine model calls with deterministic tools; adjudication and assembly are ordinary Python. The workflow is intentionally ordered, not a parallel debate swarm.
 
-The verification engine can also run by itself. This example uses only local rules and the Python standard library:
+### A small, project-owned runtime
+
+Verity now uses [its own Python orchestrator](agents/runtime.py), replacing LangChain/LangGraph dependencies. Nodes exchange explicit state, the runtime emits event envelopes, and the API saves checkpoints under one run ID. The compatibility functions `build_graph()`, `.invoke()`, and `.stream()` remain available.
+
+This choice keeps the workflow easy to inspect. It also means distributed scheduling, automatic checkpoint resume, and framework-level durable execution are not supplied. A restarted service marks unfinished runs **interrupted** and preserves their last checkpoint for inspection.
+
+The design draws on role contracts from [MetaGPT](https://arxiv.org/abs/2308.00352), feedback loops from [Reflexion](https://arxiv.org/abs/2303.11366), verification separation from [Chain-of-Verification](https://arxiv.org/abs/2309.11495), and failure analysis from [MAST](https://arxiv.org/abs/2503.13657). The [research ledger](docs/research-ledger.md) records 50 paper scans, six primary technical/design sources, adopted ideas, deferred alternatives, and an evaluation plan. This is a project-specific synthesis, not a reproduction or a claim of validated algorithmic novelty.
+
+## How verification works
+
+The existing **BACE — Budgeted, Anchored Claim Evaluation** cascade remains the evidence gate:
+
+1. Retrieve source-scoped sentences with BM25.
+2. Accept complete exact matches and narrowly defined financial field observations. Compare rounded values at their displayed precision, preserving percent units, field identity, issuer identity, and polarity. Flag genuine numeric mismatches.
+3. Optionally apply a local NLI model to remaining passage–claim pairs.
+4. Judge remaining candidates in one structured Gemini batch within the configured claim budget; abstain on missing, uncertain, or invalid verdicts. Cache determinate judgments only while the source content and issuer context remain unchanged.
+
+Fast mode uses local planning, arithmetic summaries, and an excerpt-based review contract. Gemini writes the report and judges unresolved claims in a batch. `RESEARCH_MODE=deep` enables additional model planning, analysis, and skeptical review. A full rewrite is requested only when the checker provides a concrete correction; insufficient evidence is flagged without regenerating the report. Truncated provider output is retried with a larger output allowance or fails explicitly.
+
+The writer's quotation is never treated as independent evidence. The remote verification budget carries across report revisions. It counts logical claim judgments, not provider retries, tokens, dollars, generation calls, or embeddings.
 
 ```python
 from research.cascade import Cascade
@@ -76,78 +148,59 @@ result = Cascade().verify(
     claims=[{"source": "example", "claim": "Revenue was $900 million."}],
     documents=[{"source": "example", "text": "Revenue was $120 million."}],
 )
-
-verdict = result["verdicts"][0]
-print(verdict["decision"], verdict["route"])
-# abstain numeric_guard
+print(result["verdicts"][0]["decision"])
+# abstain — needs review; no cloud call
 ```
 
-Here, `abstain` means the claim needs review. No cloud call is made. The returned verdict also includes the retrieved evidence and the reason for the decision.
-
-### Where the model fits
-
-The routing policy is called **BACE**—Budgeted, Anchored Claim Evaluation. It follows a short sequence:
-
-1. Retrieve sentences with BM25, restricted to the named source.
-2. Accept complete sentence matches. Flag missing evidence and numeric mismatches for review.
-3. If enabled, run a local DeBERTa NLI model on the remaining passage–claim pairs.
-4. Send uncertain cases for remote judgment until the verification budget is spent; leave the rest unverified.
-
-Identical claims share a judgment within a verification pass. The remote budget carries across report rewrites. Malformed or uncertain model responses cannot mark a claim as supported.
-
-Configure the full workflow in `.env`:
-
-```dotenv
-VERIFICATION_BACKEND=rules
-VERIFICATION_REMOTE_BUDGET=2
-```
-
-For local neural inference, install the optional dependencies and change the backend:
-
-```bash
-pip install -r requirements-local.txt
-```
-
-Set `VERIFICATION_BACKEND=torch` or `onnx`. The adapter uses a pinned revision of [DeBERTa NLI](https://huggingface.co/cross-encoder/nli-deberta-v3-small), with batches of 16. First use downloads the model; ONNX may export artifacts. Local decisions require a score of at least 0.95 and a margin of 0.20. Those thresholds still need financial-domain calibration.
-
-Setting the remote budget to `0` disables cloud verification. It does not disable the generation and embedding calls used elsewhere in the research workflow. The budget counts logical claim judgments, not retries, tokens, or dollars.
+For optional neural verification, install `requirements-local.txt` and set `VERIFICATION_BACKEND=torch` or `onnx`. First use downloads a pinned DeBERTa NLI model; ONNX may export artifacts. Thresholds remain uncalibrated for finance. Setting the remote budget to zero disables remote **verification**, not Gemini generation or optional semantic embeddings used in live research.
 
 ## API
 
-Interactive documentation is at [localhost:8000/docs](http://localhost:8000/docs).
+Interactive documentation: [localhost:8000/docs](http://localhost:8000/docs).
 
-| Request | Result |
+| Endpoint | Behavior |
 |---|---|
-| `POST /research/{ticker}` | Starts research and returns a run ID |
-| `GET /research/{run_id}` | Returns the report when ready |
-| `POST /verify` | Checks supplied claims against supplied documents using local rules |
-| `GET /health` | Reports service health |
-
-`POST /verify` accepts `claims` and `documents` in the same shape as the Python example above. It returns verdicts, evidence, and execution metrics with no cloud calls.
+| `POST /research/{ticker}` | Start a live research run; returns a run ID |
+| `GET /research/{run_id}` | Report and review details; HTTP 202 while running |
+| `GET /research/{run_id}/events?after=0` | Ordered lifecycle events after a sequence cursor and current run status |
+| `POST /research/{run_id}/cancel` | Request a stop at the next agent boundary |
+| `GET /research/{run_id}/citations` | Claim-level verification records |
+| `GET /research/{run_id}/trace` | Tool and agent audit entries |
+| `GET /runs` | Recent saved runs |
+| `POST /verify` | Local rules-only checking of supplied claims and documents |
+| `GET /health` | Service availability and model-configuration status |
 
 ## Development
 
-The implementation is small enough to read end to end. Start with [research/cascade.py](research/cascade.py) for routing, [research/evidence.py](research/evidence.py) for retrieval, and [research/nli.py](research/nli.py) for the optional model adapter. The [agents](agents/) directory connects these to report generation; [tools](tools/) contains data access and financial calculations.
-
-Run the tests:
-
 ```bash
-pip install pytest requests responses pydantic pydantic-settings fastapi httpx
 python -m pytest -q
 ```
 
-They cover source attribution, numeric mismatches, negation, duplicate claims, changed evidence, malformed responses, exhausted budgets, API validation, and financial calculations. The existing live evaluation runs with `python -m eval.eval` and uses network/model services.
+Tests cover the correction loop, stagnation, cancellation, missing evidence, failure propagation, identity preservation, persisted events, restart status, source attribution, numeric guards, remote budgets, API validation, and financial calculations. These are behavior tests, not a financial-domain accuracy evaluation.
 
-BACE is a project-specific combination of established methods. The research question is whether local checks and selective escalation can reduce remote work without accepting more unsupported claims. Answering it needs human-labeled financial examples, held-out companies, threshold calibration, and cost/latency measurements. Neural accuracy, ONNX speedups, and full-pipeline savings have not been established here.
+```text
+agents/       Specialized roles, custom runtime, synthetic demo
+research/     Source-scoped retrieval and verification cascade
+api/          Live events, background jobs, SQLite run snapshots
+ui/           Streamlit observatory and shared diagram renderer
+tools/        SEC / market access, computation, vector storage
+docs/         Research ledger and evaluation direction
+```
 
-## Known limitations
+Recreate the screenshots and GIF with a running dashboard:
 
-Source agreement does not establish truth. Exact source names are required, and tables, unit conversions, derived ratios, and claims spanning several sentences can lead to abstention. The NLI adapter may truncate long inputs at 512 tokens. Uncited factual claims are not comprehensively detected.
+```bash
+pip install playwright pillow
+playwright install chromium
+python tools/capture_observatory.py
+```
 
-The app is a research prototype: jobs use in-memory state, and the API has no authentication or distributed queue. Review reports before using their financial conclusions.
+The older `python -m eval.eval` evaluation uses live network/model services. For a meaningful comparison of the new skeptical workflow, use held-out companies and periods, human-labeled claims, fixed model/data conditions, and measured latency, tokens, cost, false acceptance, and abstention. See the ledger for the proposed ablations.
 
-## References
+## Boundaries worth understanding
 
-- [FrugalGPT](https://arxiv.org/abs/2305.05176) — cost-aware model cascades; inspiration for the routing approach.
-- [Sentence Transformers inference backends](https://www.sbert.net/docs/cross_encoder/usage/efficiency.html) — the local Torch and ONNX execution options.
-- [DeBERTa NLI model card](https://huggingface.co/cross-encoder/nli-deberta-v3-small) — training data and label ordering for the pretrained model.
+Source agreement does not establish truth. Verification checks extracted citations; uncited factual claims are not comprehensively detected. Exact source naming, tables, derived metrics, complex unit conversions, multi-sentence claims, and context truncation remain limitations. The skeptical review is model-generated commentary, not independently verified evidence.
+
+This is a local research prototype. The API has no authentication or distributed queue and allows at most two concurrent runs per process. Keep it on a trusted local interface. Cancellation waits for an active agent to finish; checkpoints do not provide automatic resume. The new orchestration has not established better investment accuracy, reduced hallucinations, or lower provider cost on a live financial benchmark.
+
+The interface takes inspiration from the user-provided [physics-intern Space](https://huggingface.co/spaces/huggingface/physics-intern): a readable session log alongside a visible agent network. Verity's layout, implementation, and financial workflow are its own.

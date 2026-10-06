@@ -1,4 +1,4 @@
-"""Source-anchored BACE verification inside the LangGraph rewrite loop.
+"""Source-anchored BACE verification inside the Verity runtime rewrite loop.
 
 Independent document evidence, optional local NLI, budgeted remote judgments,
 and explicit abstention. The writer's quoted passage is never trusted.
@@ -36,7 +36,7 @@ Rules:
 
 def verifier_node(state: VerityState) -> VerityState:
     """
-    LangGraph node: Verifier/Critic.
+    Verity runtime node: Verifier/Critic.
     Checks citations through the source-anchored verification cascade.
     """
     start = time.monotonic()
@@ -56,8 +56,11 @@ def verifier_node(state: VerityState) -> VerityState:
         except Exception as exc:
             logger.warning("Local verifier unavailable: %s", exc)
     budget = max(0, settings.verification_remote_budget - state.get("verification_remote_used", 0))
+    verdict_cache = state.get('verification_cache', {})
     outcome = Cascade(
         Policy(remote_budget=budget), scorer=scorer, remote=_verify_claim,
+        remote_batch=_verify_batch if len(citations) > 1 else None,
+        cache=verdict_cache,
     ).verify(citations, state.get("filing_texts", []))
     retrieved_items = [
         {"citation": c, "claim": c.get("claim", ""),
@@ -86,6 +89,7 @@ def verifier_node(state: VerityState) -> VerityState:
                 **citation,
                 "verified": verdict.get("supported", False),
                 "verification_route": verdict.get("route"),
+                "decision": verdict.get('decision'),
                 "evidence": verdict.get("evidence"),
                 "confidence": verdict.get("confidence", 0.0),
                 "verifier_reasoning": verdict.get("reasoning", ""),
@@ -130,9 +134,11 @@ def verifier_node(state: VerityState) -> VerityState:
     all_citations = ordered_citations
     verifier_feedback = ""
 
-    if failed_citations and iteration < settings.verifier_max_retries - 1:
+    actionable = [c for c in failed_citations if c.get('verifier_correction')]
+    if actionable and iteration < settings.verifier_max_retries - 1:
         # Send feedback to Writer for another pass
-        verifier_feedback = _build_feedback(failed_citations, unverified_claims)
+        verifier_feedback = _build_feedback(actionable, [
+            f"Claim: {c['claim']}\nCorrection: {c['verifier_correction']}" for c in actionable])
         logger.info(f"[Verifier] Sending {len(failed_citations)} issues back to Writer")
     elif failed_citations:
         # Max retries reached — mark remaining as UNVERIFIED in report
@@ -160,6 +166,7 @@ def verifier_node(state: VerityState) -> VerityState:
         "draft_report": draft_report,
         "verification_remote_used": state.get("verification_remote_used", 0) + outcome["metrics"]["remote_attempts"],
         "verification_metrics": outcome["metrics"],
+        "verification_cache": verdict_cache,
         "verifier_iteration": iteration + 1,
         "verifier_feedback": verifier_feedback,
         "unverified_claims": unverified_claims,
@@ -187,7 +194,7 @@ Does this passage support the claim above?
     import json as _json
 
     try:
-        raw = call_llm(prompt, system_instruction=VERIFIER_SYSTEM)
+        raw = call_llm(prompt, system_instruction=VERIFIER_SYSTEM, max_output_tokens=1024, json_output=True)
         raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
         verdict = _json.loads(raw)
         if "supported" not in verdict:
@@ -201,6 +208,32 @@ Does this passage support the claim above?
             "reasoning": f"Verification error: {str(e)}",
             "correction": None,
         }
+
+
+def _verify_batch(items):
+    """One provider request for independent passage/claim judgments; IDs are validated."""
+    import json
+    payload = [{'id': i, 'claim': claim, 'source': source, 'evidence': passage[:1600]}
+               for i, claim, passage, source in items]
+    raw = call_llm(
+        json.dumps(payload), max_output_tokens=4096, json_output=True,
+        system_instruction=VERIFIER_SYSTEM + '\nEvaluate each item independently. '
+        'Return a JSON array with id, supported, confidence, reasoning and correction for each item. '
+        'Do not infer forecasts, valuations or causal conclusions from an observed number. '
+        'Rounding at displayed precision is allowed. If the evidence is insufficient, supported=false '
+        'and correction=null. Give a correction only when the evidence supplies a specific replacement. '
+        'Never use another item as evidence.',
+    )
+    rows = json.loads(raw)
+    allowed = {i for i, _, _, _ in items}
+    if not isinstance(rows, list):
+        raise ValueError('Expected a list of batch verdicts')
+    result = {}
+    for row in rows:
+        if not isinstance(row, dict) or type(row.get('id')) is not int or row['id'] not in allowed or row['id'] in result:
+            raise ValueError('Invalid or duplicated batch verdict ID')
+        result[row['id']] = row
+    return result
 
 
 def _build_feedback(failed: list[dict], issues: list[str]) -> str:
@@ -231,7 +264,7 @@ def _mark_unverified_in_report(report: str, failed: list[dict]) -> str:
 
 def should_loop_to_writer(state: VerityState) -> str:
     """
-    LangGraph conditional edge function.
+    Verity runtime conditional edge function.
     """
     feedback = state.get("verifier_feedback", "")
     iteration = state.get("verifier_iteration", 0)

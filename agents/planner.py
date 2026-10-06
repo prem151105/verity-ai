@@ -41,7 +41,7 @@ Example output:
 
 def planner_node(state: VerityState) -> VerityState:
     """
-    LangGraph node: Planner.
+    Verity runtime node: Planner.
     Resolves company name and creates a research task list.
     """
     start = time.monotonic()
@@ -74,33 +74,24 @@ def planner_node(state: VerityState) -> VerityState:
     except Exception as e:
         logger.warning(f"[Planner] CIK resolution failed: {e}, using ticker as name")
 
-    # Use LLM to build a specific task list for this company
-    import json
-    prompt = (
-        f"Company: {company_name} ({ticker})\n\n"
-        "Create a research task list for generating a comprehensive equity research report. "
-        "Include specific SEC filing types, financial metrics, and analysis tasks."
-    )
-
-    task_list = []
-    try:
-        raw = call_llm(prompt, system_instruction=PLANNER_SYSTEM)
-        # Strip markdown fences if present
-        raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
-        task_list = json.loads(raw)
-        if not isinstance(task_list, list):
-            task_list = [str(task_list)]
-    except Exception as e:
-        logger.warning(f"[Planner] LLM task decomposition failed: {e}, using defaults")
-        task_list = [
-            f"Retrieve latest 10-K and 10-Q for {ticker} from SEC EDGAR",
-            "Extract key financial metrics: revenue, net income, gross profit, operating income",
-            "Compute financial ratios: gross margin, operating margin, net margin, debt/equity, YoY growth",
-            f"Retrieve 90-day price history for {ticker}",
-            "Fetch recent news coverage (last 30 days)",
-            "Identify key risk factors from 10-K",
-            "Analyze management discussion and forward outlook",
-        ]
+    # The workflow has fixed tool routes; a model-generated checklist never
+    # changed those routes, so the default plan is prepared locally.
+    task_list = [
+        f"Retrieve latest 10-K and 10-Q for {ticker} from SEC EDGAR",
+        "Extract current-period XBRL facts with financial period metadata",
+        "Compute profitability, leverage and annual growth ratios in Python",
+        f"Retrieve market data and price returns for {ticker}",
+        "Challenge material assumptions against independent filing excerpts",
+        "Draft a concise research note with atomic source citations",
+        "Verify claims and retain any unresolved evidence gaps",
+    ]
+    if settings.research_mode == 'deep':
+        import json
+        raw = call_llm(f'Company: {company_name} ({ticker}). Prepare the research task list.',
+                       system_instruction=PLANNER_SYSTEM, max_output_tokens=1024, json_output=True)
+        proposed = json.loads(raw)
+        if isinstance(proposed, list) and all(isinstance(t, str) for t in proposed):
+            task_list = proposed[:8]
 
     collection_name = f"verity_{ticker.lower()}_{run_id[:8]}"
 

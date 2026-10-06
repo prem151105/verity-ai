@@ -48,6 +48,14 @@ class CompanyFundamentals:
 class YFinanceClient:
     """Thin, typed wrapper around yfinance."""
 
+    def __init__(self):
+        self._stocks = {}
+
+    def _stock(self, ticker):
+        if ticker not in self._stocks:
+            self._stocks[ticker] = yf.Ticker(ticker)
+        return self._stocks[ticker]
+
     def get_price_history(
         self,
         ticker: str,
@@ -69,7 +77,7 @@ class YFinanceClient:
         end_str = end.strftime("%Y-%m-%d")
 
         logger.info(f"Fetching {days}-day price history for {ticker}")
-        stock = yf.Ticker(ticker)
+        stock = self._stock(ticker)
 
         df = stock.history(start=start_str, end=end_str, auto_adjust=True)
         if df.empty:
@@ -97,7 +105,7 @@ class YFinanceClient:
             CompanyFundamentals dataclass with cleaned fields.
         """
         logger.info(f"Fetching fundamentals for {ticker}")
-        stock = yf.Ticker(ticker)
+        stock = self._stock(ticker)
         info = stock.info
 
         def safe_float(key: str) -> Optional[float]:
@@ -133,14 +141,14 @@ class YFinanceClient:
             raw_info=info,
         )
 
-    def get_price_returns(self, ticker: str, days: int = 90) -> dict[str, float]:
+    def get_price_returns(self, ticker: str, days: int = 90, history=None) -> dict[str, float]:
         """
         Compute price returns over various periods.
 
         Returns:
             Dict with keys: return_1w, return_1m, return_3m, return_ytd
         """
-        history = self.get_price_history(ticker, days=max(days, 365))
+        history = history if history is not None else self.get_price_history(ticker, days=max(days, 365))
         df = history.df
 
         if df.empty or len(df) < 2:
